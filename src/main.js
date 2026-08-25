@@ -4,6 +4,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
+const { ensureFileCredentialStore } = require('./codex-config');
 
 const APP_NAME = 'Codex Account Switcher';
 const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
@@ -17,6 +18,7 @@ const isWindows = process.platform === 'win32';
 
 let mainWindow;
 let operationQueue = Promise.resolve();
+let configCompatibility = { changed: false, backupPath: null };
 
 function assertSupportedPlatform() {
   if (!isMac && !isWindows) throw new Error('This hardened build currently supports macOS and Windows only.');
@@ -29,6 +31,11 @@ async function exists(p) {
 async function ensureDirs() {
   await fs.mkdir(STORE_ROOT, { recursive: true, mode: 0o700 });
   await fs.mkdir(CODEX_HOME, { recursive: true, mode: 0o700 });
+}
+
+async function ensureCodexCompatibility() {
+  configCompatibility = await ensureFileCredentialStore(CODEX_HOME);
+  return configCompatibility;
 }
 
 async function writeAtomic(filePath, bytes) {
@@ -104,6 +111,7 @@ async function importCurrentAccount(displayName) {
   return queueOperation(async () => {
     assertSupportedPlatform();
     await ensureDirs();
+    await ensureCodexCompatibility();
     const auth = await readCurrentAuth();
     const identity = deriveIdentity(auth);
     const index = await readIndex();
@@ -269,6 +277,7 @@ async function switchAccount(targetId) {
   return queueOperation(async () => {
     assertSupportedPlatform();
     await ensureDirs();
+    await ensureCodexCompatibility();
 
     const index = await readIndex();
     const target = index.accounts.find((a) => a.id === targetId);
@@ -327,6 +336,9 @@ function publicState(index, warning = null) {
   return {
     activeId: index.activeId,
     warning,
+    configCompatibility: configCompatibility.changed
+      ? { changed: true, backupPath: configCompatibility.backupPath || null }
+      : { changed: false, backupPath: null },
     accounts: index.accounts.map((a) => ({
       id: a.id,
       displayName: a.displayName,
@@ -397,6 +409,7 @@ function installIpc() {
 app.whenReady().then(async () => {
   assertSupportedPlatform();
   await ensureDirs();
+  await ensureCodexCompatibility();
   installNetworkDeny();
   installIpc();
   createWindow();
