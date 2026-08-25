@@ -7,6 +7,8 @@ header { justify-content: space-between; margin-bottom: 18px; }
 .eyebrow, .label { margin: 0 0 3px; font-size: 11px; letter-spacing: .12em; color: #8d8d8d; }
 h1 { margin: 0; font-size: 28px; }
 .status { font-size: 12px; color: #9ad7ad; border: 1px solid #2b5d3b; border-radius: 999px; padding: 5px 9px; }
+.status.warning { color: #ffd48a; border-color: #745a2c; }
+.status.error { color: #ffaaaa; border-color: #7a3434; }
 .active-card { display: flex; align-items: center; gap: 12px; padding: 16px; border: 1px solid #303030; background: #181818; border-radius: 14px; margin-bottom: 18px; }
 .active-dot { width: 10px; height: 10px; border-radius: 50%; background: #69d78b; box-shadow: 0 0 0 4px rgba(105,215,139,.10); }
 .muted, .hint, .empty, .shortcut { color: #8f8f8f; font-size: 12px; }
