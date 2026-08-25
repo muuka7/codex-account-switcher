@@ -53,11 +53,23 @@ Code signing and notarization are intentionally not preconfigured because they r
 
 1. Open the official Codex app and sign into the first account normally.
 2. Confirm the local Codex `auth.json` exists.
-3. Start Codex Account Switcher. It first ensures Codex is configured to use file-backed credentials, backing up an existing `config.toml` before any required change.
+3. Start Codex Account Switcher. It ensures Codex is configured to use file-backed credentials, backing up an existing `config.toml` before any required change.
 4. Name the current account (for example `Personal`) and choose **Import**.
-5. In the official Codex app, sign out and sign into the second account once.
-6. Import it with a different name (for example `Work`).
-7. Thereafter choose **Switch** or use `Control + Option/Alt + 1–9`. The switcher closes Codex, saves the latest active credential into its encrypted vault, activates the selected account, and reopens Codex.
+5. To add another account, choose **Add another account safely** in the switcher. **Do not use Codex's Logout action.**
+6. The switcher saves the current account into its encrypted vault, closes Codex, removes only the local live `auth.json`, and reopens the official Codex sign-in screen.
+7. Sign into the additional account normally in Codex, return to the switcher, give it a name (for example `Work`), and choose **Import**.
+8. Thereafter choose **Switch** or use `Control + Option/Alt + 1–9`. The switcher closes Codex, saves the latest active credential into its encrypted vault, activates the selected account, and reopens Codex.
+
+## Re-authenticating a saved account
+
+If a saved account becomes invalid or was previously logged out:
+
+1. Choose **Re-auth** next to that saved account.
+2. The switcher preserves the currently active saved account, removes only the live local login, and opens the official Codex sign-in screen.
+3. Sign into the requested account normally in Codex.
+4. Return to the switcher and choose **Complete re-auth**.
+
+The switcher checks the local account identity where possible before replacing the saved encrypted snapshot.
 
 ## Important security notes
 
