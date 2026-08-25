@@ -20,30 +20,48 @@
     <section id="active-card" class="active-card" aria-live="polite">
       <div class="active-dot"></div>
       <div>
-        <div class="label">ACTIVE ACCOUNT</div>
+        <div class="label">SAVED ACTIVE ACCOUNT</div>
         <strong id="active-name">None saved</strong>
         <div id="active-email" class="muted"></div>
       </div>
     </section>
 
+    <section id="pending-card" class="pending-card" hidden aria-live="polite">
+      <div class="label" id="pending-title">SIGN-IN REQUIRED</div>
+      <strong id="pending-message"></strong>
+      <p id="pending-help" class="hint"></p>
+      <div class="pending-actions">
+        <button id="complete-reauth" class="primary" hidden>Complete re-auth</button>
+        <button id="cancel-pending">Cancel and restore saved account</button>
+      </div>
+    </section>
+
     <section>
       <div id="accounts" class="accounts"></div>
-      <p id="empty" class="empty">Log into an account in the official Codex app, then import its current local authentication state.</p>
+      <p id="empty" class="empty">Sign into an account in the official Codex app, then import its current local authentication state.</p>
     </section>
 
     <section class="add-account">
-      <label for="display-name">Import current Codex account</label>
+      <div class="section-heading">
+        <div>
+          <div class="label">ACCOUNT ONBOARDING</div>
+          <strong>Add or capture an account</strong>
+        </div>
+        <button id="prepare-new" class="quiet">Add another account safely</button>
+      </div>
+
+      <label for="display-name">Import the account currently signed into Codex</label>
       <div class="row">
         <input id="display-name" maxlength="60" placeholder="e.g. Personal or Work" autocomplete="off" />
         <button id="import-btn" class="primary">Import</button>
       </div>
-      <p class="hint">The app never hosts an OpenAI login page. Authentication stays in the official Codex app.</p>
+      <p class="hint">For additional accounts, use <strong>Add another account safely</strong>. Do not use Codex's Logout action; the switcher temporarily clears only the local login file so existing saved sessions are not revoked.</p>
     </section>
 
     <footer>
       <button id="open-codex" class="quiet">Open Codex</button>
       <button id="open-store" class="quiet">Local data</button>
-      <span class="shortcut">⌃⌥1–9 switch</span>
+      <span class="shortcut">⌃⌥ / Ctrl+Alt 1–9</span>
     </footer>
   </main>
   <script src="app.js"></script>
