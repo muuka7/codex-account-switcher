@@ -3,7 +3,15 @@ const path = require('node:path');
 
 exports.default = async function afterPack(context) {
   const appName = context.packager.appInfo.productFilename;
-  const executable = path.join(context.appOutDir, `${appName}.app`, 'Contents', 'MacOS', appName);
+  let executable;
+
+  if (context.electronPlatformName === 'darwin') {
+    executable = path.join(context.appOutDir, `${appName}.app`, 'Contents', 'MacOS', appName);
+  } else if (context.electronPlatformName === 'win32') {
+    executable = path.join(context.appOutDir, `${appName}.exe`);
+  } else {
+    return;
+  }
 
   await flipFuses(executable, {
     version: FuseVersion.V1,
