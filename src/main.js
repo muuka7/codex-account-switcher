@@ -49,17 +49,27 @@ async function writeAtomic(filePath, bytes) {
   }
 }
 
+function normalizeIndex(index) {
+  const normalized = index && typeof index === 'object' ? index : {};
+  normalized.version = 2;
+  normalized.activeId = normalized.activeId || null;
+  normalized.accounts = Array.isArray(normalized.accounts) ? normalized.accounts : [];
+  normalized.pendingLogin = normalized.pendingLogin || null;
+  return normalized;
+}
+
 async function readIndex() {
   try {
-    return JSON.parse(await fs.readFile(INDEX_PATH, 'utf8'));
+    return normalizeIndex(JSON.parse(await fs.readFile(INDEX_PATH, 'utf8')));
   } catch (error) {
-    if (error.code === 'ENOENT') return { version: 1, activeId: null, accounts: [] };
+    if (error.code === 'ENOENT') return normalizeIndex({});
     throw error;
   }
 }
 
 async function writeIndex(index) {
-  await writeAtomic(INDEX_PATH, Buffer.from(`${JSON.stringify(index, null, 2)}\n`, 'utf8'));
+  const normalized = normalizeIndex(index);
+  await writeAtomic(INDEX_PATH, Buffer.from(`${JSON.stringify(normalized, null, 2)}\n`, 'utf8'));
 }
 
 function protect(bytes) {
@@ -107,14 +117,47 @@ function deriveIdentity(authBytes) {
   }
 }
 
+function identityMatches(left = {}, right = {}) {
+  if (left.accountId && right.accountId) return left.accountId === right.accountId;
+  if (left.email && right.email) return left.email.toLowerCase() === right.email.toLowerCase();
+  return false;
+}
+
+function assertReauthIdentity(expected = {}, actual = {}) {
+  if (expected.accountId && actual.accountId && expected.accountId !== actual.accountId) {
+    throw new Error('The signed-in Codex workspace/account does not match the account being re-authenticated.');
+  }
+  if (expected.email && actual.email && expected.email.toLowerCase() !== actual.email.toLowerCase()) {
+    throw new Error(`The signed-in Codex account (${actual.email}) does not match the saved account (${expected.email}).`);
+  }
+}
+
 async function importCurrentAccount(displayName) {
   return queueOperation(async () => {
     assertSupportedPlatform();
     await ensureDirs();
     await ensureCodexCompatibility();
+
     const auth = await readCurrentAuth();
     const identity = deriveIdentity(auth);
     const index = await readIndex();
+
+    if (index.pendingLogin?.mode === 'reauth') {
+      throw new Error('A re-authentication is pending. Use Complete re-auth instead of Import.');
+    }
+
+    const existing = index.accounts.find((account) => identityMatches(account.identity, identity));
+    if (existing) {
+      await writeAtomic(accountBlobPath(existing.id), protect(auth));
+      existing.identity = { ...existing.identity, ...identity };
+      if (displayName) existing.displayName = String(displayName).slice(0, 60);
+      existing.lastAuthenticatedAt = new Date().toISOString();
+      index.activeId = existing.id;
+      index.pendingLogin = null;
+      await writeIndex(index);
+      return publicState(index, `Updated the existing saved account ${existing.displayName}.`);
+    }
+
     const id = crypto.randomUUID();
     await writeAtomic(accountBlobPath(id), protect(auth));
     index.accounts.push({
@@ -122,8 +165,10 @@ async function importCurrentAccount(displayName) {
       displayName: String(displayName || identity.email || 'Account').slice(0, 60),
       identity,
       createdAt: new Date().toISOString(),
+      lastAuthenticatedAt: new Date().toISOString(),
     });
     index.activeId = id;
+    index.pendingLogin = null;
     await writeIndex(index);
     return publicState(index);
   });
@@ -136,6 +181,7 @@ async function saveActiveCredential(index) {
   const auth = await readCurrentAuth();
   await writeAtomic(accountBlobPath(account.id), protect(auth));
   account.identity = { ...account.identity, ...deriveIdentity(auth) };
+  account.lastSavedAt = new Date().toISOString();
 }
 
 function run(command, args, options = {}) {
@@ -273,6 +319,126 @@ exit 1
   assertSupportedPlatform();
 }
 
+async function prepareLogin(mode, accountId = null) {
+  return queueOperation(async () => {
+    assertSupportedPlatform();
+    await ensureDirs();
+    await ensureCodexCompatibility();
+
+    const index = await readIndex();
+    if (index.pendingLogin) throw new Error('Another account sign-in flow is already pending. Complete or cancel it first.');
+
+    let target = null;
+    if (mode === 'reauth') {
+      target = index.accounts.find((account) => account.id === accountId);
+      if (!target) throw new Error('Account not found.');
+    }
+
+    await closeCodex();
+
+    let original = null;
+    try {
+      if (await exists(AUTH_PATH)) {
+        original = await readCurrentAuth();
+        await writeAtomic(BACKUP_PATH, protect(original));
+        await saveActiveCredential(index);
+      }
+
+      await fs.rm(AUTH_PATH, { force: true });
+      index.pendingLogin = {
+        mode,
+        accountId: target?.id || null,
+        startedAt: new Date().toISOString(),
+      };
+      await writeIndex(index);
+    } catch (error) {
+      if (original) await writeAtomic(AUTH_PATH, original).catch(() => {});
+      await openCodex().catch(() => {});
+      throw error;
+    }
+
+    let warning = null;
+    try {
+      await openCodex();
+    } catch (error) {
+      warning = `Local login was prepared, but Codex could not be reopened automatically: ${error.message}`;
+    }
+
+    return publicState(index, warning);
+  });
+}
+
+async function prepareNewAccount() {
+  return prepareLogin('new');
+}
+
+async function prepareReauth(accountId) {
+  return prepareLogin('reauth', accountId);
+}
+
+async function completeReauth() {
+  return queueOperation(async () => {
+    assertSupportedPlatform();
+    await ensureDirs();
+    await ensureCodexCompatibility();
+
+    const index = await readIndex();
+    if (index.pendingLogin?.mode !== 'reauth' || !index.pendingLogin.accountId) {
+      throw new Error('No account re-authentication is pending.');
+    }
+
+    const target = index.accounts.find((account) => account.id === index.pendingLogin.accountId);
+    if (!target) throw new Error('The account being re-authenticated no longer exists.');
+
+    const auth = await readCurrentAuth();
+    const identity = deriveIdentity(auth);
+    assertReauthIdentity(target.identity, identity);
+
+    await writeAtomic(accountBlobPath(target.id), protect(auth));
+    target.identity = { ...target.identity, ...identity };
+    target.lastAuthenticatedAt = new Date().toISOString();
+    index.activeId = target.id;
+    index.pendingLogin = null;
+    await writeIndex(index);
+    return publicState(index, `${target.displayName} was re-authenticated successfully.`);
+  });
+}
+
+async function cancelPendingLogin() {
+  return queueOperation(async () => {
+    assertSupportedPlatform();
+    await ensureDirs();
+    await ensureCodexCompatibility();
+
+    const index = await readIndex();
+    if (!index.pendingLogin) return publicState(index);
+
+    const active = index.accounts.find((account) => account.id === index.activeId);
+    if (!active) {
+      index.pendingLogin = null;
+      await writeIndex(index);
+      return publicState(index, 'Pending sign-in was cleared. No saved active account was available to restore.');
+    }
+
+    const activeAuth = unprotect(await fs.readFile(accountBlobPath(active.id)));
+    JSON.parse(activeAuth.toString('utf8'));
+
+    await closeCodex();
+    await writeAtomic(AUTH_PATH, activeAuth);
+    index.pendingLogin = null;
+    await writeIndex(index);
+
+    let warning = null;
+    try {
+      await openCodex();
+    } catch (error) {
+      warning = `Pending sign-in was cancelled and ${active.displayName} was restored, but Codex could not be reopened automatically: ${error.message}`;
+    }
+
+    return publicState(index, warning);
+  });
+}
+
 async function switchAccount(targetId) {
   return queueOperation(async () => {
     assertSupportedPlatform();
@@ -282,7 +448,7 @@ async function switchAccount(targetId) {
     const index = await readIndex();
     const target = index.accounts.find((a) => a.id === targetId);
     if (!target) throw new Error('Account not found.');
-    if (index.activeId === targetId) return publicState(index);
+    if (!index.pendingLogin && index.activeId === targetId) return publicState(index);
 
     const targetCipher = await fs.readFile(accountBlobPath(targetId));
     const targetAuth = unprotect(targetCipher);
@@ -297,10 +463,14 @@ async function switchAccount(targetId) {
         await writeAtomic(BACKUP_PATH, protect(original));
       }
 
-      await saveActiveCredential(index);
-      await writeAtomic(AUTH_PATH, targetAuth);
+      // During a pending new-login/reauth flow, auth.json may belong to an
+      // uncommitted account. The previously active account was already saved
+      // before the local auth file was cleared, so do not overwrite its vault.
+      if (!index.pendingLogin) await saveActiveCredential(index);
 
+      await writeAtomic(AUTH_PATH, targetAuth);
       index.activeId = targetId;
+      index.pendingLogin = null;
       target.identity = { ...target.identity, ...deriveIdentity(targetAuth) };
       target.lastSwitchedAt = new Date().toISOString();
       await writeIndex(index);
@@ -325,6 +495,7 @@ async function removeAccount(id) {
   return queueOperation(async () => {
     const index = await readIndex();
     if (index.activeId === id) throw new Error('Switch to another account before removing the active account.');
+    if (index.pendingLogin?.accountId === id) throw new Error('Complete or cancel this account re-authentication before removing it.');
     index.accounts = index.accounts.filter((a) => a.id !== id);
     await fs.rm(accountBlobPath(id), { force: true });
     await writeIndex(index);
@@ -333,18 +504,32 @@ async function removeAccount(id) {
 }
 
 function publicState(index, warning = null) {
+  const normalized = normalizeIndex(index);
+  const pendingTarget = normalized.pendingLogin?.accountId
+    ? normalized.accounts.find((account) => account.id === normalized.pendingLogin.accountId)
+    : null;
+
   return {
-    activeId: index.activeId,
+    activeId: normalized.activeId,
     warning,
+    pendingLogin: normalized.pendingLogin
+      ? {
+          mode: normalized.pendingLogin.mode,
+          accountId: normalized.pendingLogin.accountId || null,
+          accountName: pendingTarget?.displayName || null,
+          startedAt: normalized.pendingLogin.startedAt || null,
+        }
+      : null,
     configCompatibility: configCompatibility.changed
       ? { changed: true, backupPath: configCompatibility.backupPath || null }
       : { changed: false, backupPath: null },
-    accounts: index.accounts.map((a) => ({
+    accounts: normalized.accounts.map((a) => ({
       id: a.id,
       displayName: a.displayName,
       email: a.identity?.email || null,
       planType: a.identity?.planType || null,
-      isActive: a.id === index.activeId,
+      isActive: a.id === normalized.activeId,
+      isPendingReauth: normalized.pendingLogin?.mode === 'reauth' && normalized.pendingLogin.accountId === a.id,
       lastSwitchedAt: a.lastSwitchedAt || null,
     })),
   };
@@ -368,10 +553,10 @@ function hardenNavigation(win) {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 420,
-    height: 560,
-    minWidth: 380,
-    minHeight: 480,
+    width: 440,
+    height: 650,
+    minWidth: 400,
+    minHeight: 520,
     title: APP_NAME,
     backgroundColor: '#111111',
     webPreferences: {
@@ -392,7 +577,7 @@ function registerShortcuts() {
     globalShortcut.register(`Control+Alt+${i}`, async () => {
       const state = await getState();
       const account = state.accounts[i - 1];
-      if (account && !account.isActive) switchAccount(account.id).catch(() => {});
+      if (account && (!account.isActive || state.pendingLogin)) switchAccount(account.id).catch(() => {});
     });
   }
 }
@@ -400,6 +585,10 @@ function registerShortcuts() {
 function installIpc() {
   ipcMain.handle('state:get', getState);
   ipcMain.handle('account:import-current', (_event, name) => importCurrentAccount(name));
+  ipcMain.handle('account:prepare-new', () => prepareNewAccount());
+  ipcMain.handle('account:prepare-reauth', (_event, id) => prepareReauth(id));
+  ipcMain.handle('account:complete-reauth', () => completeReauth());
+  ipcMain.handle('account:cancel-pending', () => cancelPendingLogin());
   ipcMain.handle('account:switch', (_event, id) => switchAccount(id));
   ipcMain.handle('account:remove', (_event, id) => removeAccount(id));
   ipcMain.handle('codex:open', () => openCodex());
