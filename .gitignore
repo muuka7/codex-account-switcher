@@ -1,0 +1,19 @@
+node_modules/
+release/
+dist/
+*.dmg
+*.zip
+.DS_Store
+npm-debug.log*
+.env
+.env.*
+!/.env.example
+
+# Never commit Codex credentials or local switcher state
+auth.json
+*.keychain
+vault/
+accounts.json
+last-auth-backup.keychain
+.codex/
+.codex-profiles/
