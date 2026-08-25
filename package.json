@@ -8,7 +8,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "lint": "node --check src/main.js && node --check src/preload.js && node --check src/ui/app.js && node --check scripts/apply-fuses.js",
+    "lint": "node --check src/main.js && node --check src/codex-config.js && node --check src/preload.js && node --check src/ui/app.js && node --check scripts/apply-fuses.js",
     "pack:mac": "electron-builder --mac dmg --x64 --arm64 --publish never",
     "pack:win": "electron-builder --win nsis --x64 --publish never"
   },
