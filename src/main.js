@@ -11,12 +11,12 @@ const AUTH_PATH = path.join(CODEX_HOME, 'auth.json');
 const STORE_ROOT = path.join(app.getPath('userData'), 'vault');
 const INDEX_PATH = path.join(app.getPath('userData'), 'accounts.json');
 const BACKUP_PATH = path.join(app.getPath('userData'), 'last-auth-backup.secure');
+const WINDOWS_CODEX_AUMID = 'OpenAI.Codex_2p2nqsd0c76g0!App';
 const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
 
 let mainWindow;
 let operationQueue = Promise.resolve();
-let lastWindowsCodexExecutable = null;
 
 function assertSupportedPlatform() {
   if (!isMac && !isWindows) throw new Error('This hardened build currently supports macOS and Windows only.');
@@ -109,7 +109,12 @@ async function importCurrentAccount(displayName) {
     const index = await readIndex();
     const id = crypto.randomUUID();
     await writeAtomic(accountBlobPath(id), protect(auth));
-    index.accounts.push({ id, displayName: String(displayName || identity.email || 'Account').slice(0, 60), identity, createdAt: new Date().toISOString() });
+    index.accounts.push({
+      id,
+      displayName: String(displayName || identity.email || 'Account').slice(0, 60),
+      identity,
+      createdAt: new Date().toISOString(),
+    });
     index.activeId = id;
     await writeIndex(index);
     return publicState(index);
@@ -127,7 +132,10 @@ async function saveActiveCredential(index) {
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'ignore', windowsHide: true });
+    const child = spawn(command, args, {
+      stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'ignore',
+      windowsHide: true,
+    });
     let stdout = '';
     let stderr = '';
     if (options.capture) {
@@ -142,21 +150,6 @@ function run(command, args, options = {}) {
   });
 }
 
-function spawnDetached(command, args = []) {
-  const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true });
-  child.unref();
-}
-
-async function discoverWindowsCodexExecutable() {
-  if (!isWindows) return null;
-  const script = [
-    "$p = Get-Process -Name Codex -ErrorAction SilentlyContinue | Where-Object { $_.Path } | Select-Object -First 1",
-    "if ($p) { try { [Console]::Out.Write($p.Path) } catch {} }",
-  ].join('; ');
-  const value = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { capture: true }).catch(() => '');
-  return value || null;
-}
-
 async function closeCodex() {
   if (isMac) {
     try {
@@ -169,15 +162,55 @@ async function closeCodex() {
   }
 
   if (isWindows) {
-    lastWindowsCodexExecutable = await discoverWindowsCodexExecutable();
-    const script = [
-      "$procs = Get-Process -Name Codex -ErrorAction SilentlyContinue",
-      "foreach ($p in $procs) { try { $null = $p.CloseMainWindow() } catch {} }",
-      "Start-Sleep -Milliseconds 900",
-      "Get-Process -Name Codex -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue",
-    ].join('; ');
-    await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]).catch(() => {});
-    await new Promise((r) => setTimeout(r, 350));
+    const script = `
+$ErrorActionPreference = 'Stop'
+$pkg = Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue | Select-Object -First 1
+$install = if ($pkg) { $pkg.InstallLocation } else { $null }
+
+function Get-CodexPackageProcesses {
+  $items = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ieq 'ChatGPT.exe' -or $_.Name -ieq 'codex.exe' })
+
+  if ($install) {
+    return @($items | Where-Object {
+      $_.ExecutablePath -and
+      $_.ExecutablePath.StartsWith($install, [System.StringComparison]::OrdinalIgnoreCase)
+    })
+  }
+
+  return @($items | Where-Object {
+    $_.ExecutablePath -and $_.ExecutablePath -like '*\\WindowsApps\\OpenAI.Codex_*'
+  })
+}
+
+$owned = @(Get-CodexPackageProcesses)
+if ($owned.Count -eq 0) { exit 0 }
+
+$shells = @($owned |
+  Where-Object { $_.Name -ieq 'ChatGPT.exe' } |
+  ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } |
+  Where-Object { $_ -and $_.MainWindowHandle -ne 0 })
+
+foreach ($p in $shells) {
+  try { $null = $p.CloseMainWindow() } catch {}
+}
+
+Start-Sleep -Milliseconds 700
+
+$remaining = @(Get-CodexPackageProcesses)
+foreach ($p in $remaining) {
+  Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+}
+
+for ($i = 0; $i -lt 20; $i++) {
+  Start-Sleep -Milliseconds 150
+  if (@(Get-CodexPackageProcesses).Count -eq 0) { exit 0 }
+}
+
+[Console]::Error.Write('Timed out waiting for the Codex package process group to stop.')
+exit 1
+`;
+    await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { capture: true });
     return;
   }
 
@@ -191,26 +224,40 @@ async function openCodex() {
   }
 
   if (isWindows) {
-    if (lastWindowsCodexExecutable && await exists(lastWindowsCodexExecutable)) {
-      spawnDetached(lastWindowsCodexExecutable);
-      return;
-    }
+    const script = `
+$ErrorActionPreference = 'Stop'
+$pkg = Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue | Select-Object -First 1
 
-    const script = [
-      "$ErrorActionPreference = 'SilentlyContinue'",
-      "$apps = @(Get-StartApps | Where-Object { $_.Name -like '*Codex*' })",
-      "$app = $apps | Where-Object { $_.Name -eq 'Codex' } | Select-Object -First 1",
-      "if (-not $app) { $app = $apps | Select-Object -First 1 }",
-      "if ($app) { Start-Process explorer.exe -ArgumentList \"shell:AppsFolder\\$($app.AppID)\"; exit 0 }",
-      "$startMenus = @(\"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\", \"$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\")",
-      "$shortcut = Get-ChildItem -Path $startMenus -Filter '*Codex*.lnk' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1",
-      "if ($shortcut) { Start-Process $shortcut.FullName; exit 0 }",
-      "$candidates = @(\"$env:LOCALAPPDATA\\Programs\\Codex\\Codex.exe\", \"$env:LOCALAPPDATA\\Codex\\Codex.exe\", \"$env:ProgramFiles\\Codex\\Codex.exe\")",
-      "foreach ($candidate in $candidates) { if (Test-Path $candidate) { Start-Process $candidate; exit 0 } }",
-      "$found = if ($apps.Count) { ($apps | ForEach-Object { \"$($_.Name) [$($_.AppID)]\" }) -join ', ' } else { 'none' }",
-      "[Console]::Error.Write(\"Could not locate the Codex desktop app. Matching Start Apps: $found\")",
-      "exit 1",
-    ].join('; ');
+if ($pkg) {
+  Start-Process explorer.exe -ArgumentList 'shell:AppsFolder\\${WINDOWS_CODEX_AUMID}'
+  exit 0
+}
+
+$app = Get-StartApps |
+  Where-Object { $_.AppID -like 'OpenAI.Codex*!App' -or $_.Name -eq 'Codex' } |
+  Select-Object -First 1
+
+if ($app) {
+  Start-Process explorer.exe -ArgumentList ("shell:AppsFolder\\" + $app.AppID)
+  exit 0
+}
+
+$startMenus = @(
+  "$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs",
+  "$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs"
+)
+
+$shortcut = Get-ChildItem -Path $startMenus -Filter '*Codex*.lnk' -Recurse -ErrorAction SilentlyContinue |
+  Select-Object -First 1
+
+if ($shortcut) {
+  Start-Process $shortcut.FullName
+  exit 0
+}
+
+[Console]::Error.Write('Could not locate the registered Codex desktop app.')
+exit 1
+`;
     await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { capture: true });
     return;
   }
@@ -222,6 +269,7 @@ async function switchAccount(targetId) {
   return queueOperation(async () => {
     assertSupportedPlatform();
     await ensureDirs();
+
     const index = await readIndex();
     const target = index.accounts.find((a) => a.id === targetId);
     if (!target) throw new Error('Account not found.');
@@ -232,14 +280,17 @@ async function switchAccount(targetId) {
     JSON.parse(targetAuth.toString('utf8'));
 
     await closeCodex();
+
     let original = null;
     try {
       if (await exists(AUTH_PATH)) {
         original = await readCurrentAuth();
         await writeAtomic(BACKUP_PATH, protect(original));
       }
+
       await saveActiveCredential(index);
       await writeAtomic(AUTH_PATH, targetAuth);
+
       index.activeId = targetId;
       target.identity = { ...target.identity, ...deriveIdentity(targetAuth) };
       target.lastSwitchedAt = new Date().toISOString();
@@ -250,8 +301,14 @@ async function switchAccount(targetId) {
       throw error;
     }
 
-    await openCodex();
-    return publicState(index);
+    let warning = null;
+    try {
+      await openCodex();
+    } catch (error) {
+      warning = `Account switched successfully, but Codex could not be reopened automatically: ${error.message}`;
+    }
+
+    return publicState(index, warning);
   });
 }
 
@@ -266,9 +323,10 @@ async function removeAccount(id) {
   });
 }
 
-function publicState(index) {
+function publicState(index, warning = null) {
   return {
     activeId: index.activeId,
+    warning,
     accounts: index.accounts.map((a) => ({
       id: a.id,
       displayName: a.displayName,
@@ -312,6 +370,7 @@ function createWindow() {
       webSecurity: true,
     },
   });
+
   hardenNavigation(mainWindow);
   mainWindow.loadFile(path.join(__dirname, 'ui', 'index.html'));
 }
