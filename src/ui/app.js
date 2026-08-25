@@ -6,19 +6,30 @@ const statusEl = document.getElementById('status');
 const nameInput = document.getElementById('display-name');
 const importBtn = document.getElementById('import-btn');
 
+function clearStatusClasses() {
+  statusEl.classList.remove('error', 'warning');
+}
+
 function setBusy(message = 'Working…') {
   statusEl.textContent = message;
-  statusEl.classList.remove('error');
+  clearStatusClasses();
 }
 
 function setError(error) {
   statusEl.textContent = error?.message || String(error);
+  clearStatusClasses();
   statusEl.classList.add('error');
+}
+
+function setWarning(message) {
+  statusEl.textContent = message;
+  clearStatusClasses();
+  statusEl.classList.add('warning');
 }
 
 function setReady() {
   statusEl.textContent = 'Local only';
-  statusEl.classList.remove('error');
+  clearStatusClasses();
 }
 
 function accountRow(account, position) {
@@ -51,9 +62,11 @@ function accountRow(account, position) {
         setBusy(`Switching to ${account.displayName}…`);
         const state = await window.codexSwitcher.switchAccount(account.id);
         render(state);
-        setReady();
+        if (state.warning) setWarning(state.warning);
+        else setReady();
       } catch (error) { setError(error); }
     });
+
     const removeBtn = document.createElement('button');
     removeBtn.className = 'danger';
     removeBtn.textContent = 'Remove';
@@ -99,7 +112,14 @@ importBtn.addEventListener('click', async () => {
   } catch (error) { setError(error); }
 });
 
-document.getElementById('open-codex').addEventListener('click', () => window.codexSwitcher.openCodex().catch(setError));
+document.getElementById('open-codex').addEventListener('click', async () => {
+  try {
+    setBusy('Opening Codex…');
+    await window.codexSwitcher.openCodex();
+    setReady();
+  } catch (error) { setError(error); }
+});
+
 document.getElementById('open-store').addEventListener('click', () => window.codexSwitcher.openStoreFolder().catch(setError));
 
 refresh();
