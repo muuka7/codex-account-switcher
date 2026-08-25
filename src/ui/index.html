@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Codex Account Switcher</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">CODEX</p>
+        <h1>Accounts</h1>
+      </div>
+      <span id="status" class="status">Local only</span>
+    </header>
+
+    <section id="active-card" class="active-card" aria-live="polite">
+      <div class="active-dot"></div>
+      <div>
+        <div class="label">ACTIVE ACCOUNT</div>
+        <strong id="active-name">None saved</strong>
+        <div id="active-email" class="muted"></div>
+      </div>
+    </section>
+
+    <section>
+      <div id="accounts" class="accounts"></div>
+      <p id="empty" class="empty">Log into an account in the official Codex app, then import its current local authentication state.</p>
+    </section>
+
+    <section class="add-account">
+      <label for="display-name">Import current Codex account</label>
+      <div class="row">
+        <input id="display-name" maxlength="60" placeholder="e.g. Personal or Work" autocomplete="off" />
+        <button id="import-btn" class="primary">Import</button>
+      </div>
+      <p class="hint">The app never hosts an OpenAI login page. Authentication stays in the official Codex app.</p>
+    </section>
+
+    <footer>
+      <button id="open-codex" class="quiet">Open Codex</button>
+      <button id="open-store" class="quiet">Local data</button>
+      <span class="shortcut">⌃⌥1–9 switch</span>
+    </footer>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
