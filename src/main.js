@@ -150,7 +150,7 @@ function spawnDetached(command, args = []) {
 async function discoverWindowsCodexExecutable() {
   if (!isWindows) return null;
   const script = [
-    "$p = Get-Process -Name Codex -ErrorAction SilentlyContinue | Select-Object -First 1",
+    "$p = Get-Process -Name Codex -ErrorAction SilentlyContinue | Where-Object { $_.Path } | Select-Object -First 1",
     "if ($p) { try { [Console]::Out.Write($p.Path) } catch {} }",
   ].join('; ');
   const value = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { capture: true }).catch(() => '');
@@ -197,13 +197,21 @@ async function openCodex() {
     }
 
     const script = [
-      "$app = Get-StartApps | Where-Object { $_.Name -eq 'Codex' } | Select-Object -First 1",
-      "if ($app) { Start-Process explorer.exe \"shell:AppsFolder\\$($app.AppID)\"; exit 0 }",
-      "$candidates = @(\"$env:LOCALAPPDATA\\Programs\\Codex\\Codex.exe\", \"$env:LOCALAPPDATA\\Codex\\Codex.exe\")",
+      "$ErrorActionPreference = 'SilentlyContinue'",
+      "$apps = @(Get-StartApps | Where-Object { $_.Name -like '*Codex*' })",
+      "$app = $apps | Where-Object { $_.Name -eq 'Codex' } | Select-Object -First 1",
+      "if (-not $app) { $app = $apps | Select-Object -First 1 }",
+      "if ($app) { Start-Process explorer.exe -ArgumentList \"shell:AppsFolder\\$($app.AppID)\"; exit 0 }",
+      "$startMenus = @(\"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\", \"$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\")",
+      "$shortcut = Get-ChildItem -Path $startMenus -Filter '*Codex*.lnk' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1",
+      "if ($shortcut) { Start-Process $shortcut.FullName; exit 0 }",
+      "$candidates = @(\"$env:LOCALAPPDATA\\Programs\\Codex\\Codex.exe\", \"$env:LOCALAPPDATA\\Codex\\Codex.exe\", \"$env:ProgramFiles\\Codex\\Codex.exe\")",
       "foreach ($candidate in $candidates) { if (Test-Path $candidate) { Start-Process $candidate; exit 0 } }",
+      "$found = if ($apps.Count) { ($apps | ForEach-Object { \"$($_.Name) [$($_.AppID)]\" }) -join ', ' } else { 'none' }",
+      "[Console]::Error.Write(\"Could not locate the Codex desktop app. Matching Start Apps: $found\")",
       "exit 1",
     ].join('; ');
-    await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
+    await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { capture: true });
     return;
   }
 
