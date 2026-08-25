@@ -8,7 +8,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "lint": "node --check src/main.js && node --check src/preload.js && node --check src/ui/app.js",
+    "lint": "node --check src/main.js && node --check src/preload.js && node --check src/ui/app.js && node --check scripts/apply-fuses.js",
     "pack:mac": "electron-builder --mac dmg --x64 --arm64 --publish never"
   },
   "devDependencies": {
@@ -20,8 +20,9 @@
     "appId": "com.muuka.privatecodexswitcher",
     "productName": "Codex Account Switcher",
     "asar": true,
+    "afterPack": "scripts/apply-fuses.js",
     "directories": { "output": "release" },
-    "files": ["src/**/*", "README.md", "SECURITY.md", "LICENSE", "NOTICE.md", "package.json"],
+    "files": ["src/**/*", "scripts/apply-fuses.js", "README.md", "SECURITY.md", "LICENSE", "NOTICE.md", "package.json"],
     "mac": {
       "category": "public.app-category.utilities",
       "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
