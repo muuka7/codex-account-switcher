@@ -1,0 +1,33 @@
+* { box-sizing: border-box; }
+:root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+body { margin: 0; background: #111; color: #f5f5f5; }
+main { padding: 24px; }
+header, footer, .row { display: flex; align-items: center; gap: 10px; }
+header { justify-content: space-between; margin-bottom: 18px; }
+.eyebrow, .label { margin: 0 0 3px; font-size: 11px; letter-spacing: .12em; color: #8d8d8d; }
+h1 { margin: 0; font-size: 28px; }
+.status { font-size: 12px; color: #9ad7ad; border: 1px solid #2b5d3b; border-radius: 999px; padding: 5px 9px; }
+.active-card { display: flex; align-items: center; gap: 12px; padding: 16px; border: 1px solid #303030; background: #181818; border-radius: 14px; margin-bottom: 18px; }
+.active-dot { width: 10px; height: 10px; border-radius: 50%; background: #69d78b; box-shadow: 0 0 0 4px rgba(105,215,139,.10); }
+.muted, .hint, .empty, .shortcut { color: #8f8f8f; font-size: 12px; }
+.accounts { display: grid; gap: 8px; }
+.account { display: flex; align-items: center; justify-content: space-between; padding: 12px 13px; border: 1px solid #2c2c2c; border-radius: 12px; background: #171717; }
+.account.active { border-color: #3d7550; background: #162019; }
+.account-main { min-width: 0; }
+.account-name { font-weight: 650; }
+.account-email { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
+.actions { display: flex; gap: 6px; }
+button, input { font: inherit; }
+button { border: 1px solid #363636; border-radius: 9px; background: #222; color: #eee; padding: 8px 10px; cursor: pointer; }
+button:hover { background: #2b2b2b; }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: #f1f1f1; color: #111; border-color: #f1f1f1; font-weight: 650; }
+button.danger { color: #ffaaaa; }
+button.quiet { background: transparent; }
+.add-account { margin-top: 20px; padding-top: 18px; border-top: 1px solid #252525; }
+.add-account label { display: block; font-size: 13px; margin-bottom: 8px; }
+input { flex: 1; min-width: 0; border: 1px solid #333; background: #171717; color: #fff; border-radius: 9px; padding: 9px 10px; outline: none; }
+input:focus { border-color: #626262; }
+footer { margin-top: 22px; padding-top: 16px; border-top: 1px solid #252525; }
+footer .shortcut { margin-left: auto; }
+.error { color: #ffaaaa; }
