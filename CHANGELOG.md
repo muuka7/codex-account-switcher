@@ -2,9 +2,27 @@
 
 Notable changes to Codex Account Switcher. Dates are ISO-8601.
 
-## Unreleased
+## 0.1.0 — 2026-08-26
 
-### Interface redesign — 2026-08-26
+First tagged release. Prebuilt, unsigned installers for macOS (Intel and Apple
+Silicon) and Windows are attached to the release on GitHub.
+
+### Release infrastructure
+
+- Added `.github/workflows/release.yml`. Pushing a `v*` tag lints, packages on a
+  macOS runner and a Windows runner in parallel, generates `SHA256SUMS.txt`, and
+  publishes one GitHub Release carrying both platforms' installers. The workflow
+  can also be run manually against an existing tag.
+- The workflow uses only first-party actions and the preinstalled `gh` CLI, so
+  the release path pulls in no third-party action code.
+- Sets `CSC_IDENTITY_AUTO_DISCOVERY=false` so electron-builder does not try to
+  pick up a keychain signing identity on the macOS runner.
+- Added `RELEASING.md` covering how to cut a release, why the builds are
+  unsigned, and what private-repository distribution does and does not allow.
+- Added an **Install** section to the README with the Gatekeeper and SmartScreen
+  workarounds first-time users will hit.
+
+### Interface redesign
 
 The switcher was built like a dashboard: a persistent sidebar, three navigation
 destinations, and a two-panel workspace that showed the same account twice and

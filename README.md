@@ -21,6 +21,36 @@ cli_auth_credentials_store = "file"
 
 If `config.toml` already exists and needs changing, the switcher creates a timestamped `config.toml.codex-switcher-backup-*` copy before modifying it.
 
+## Install
+
+Prebuilt installers for both platforms are attached to each entry on the
+[Releases page](https://github.com/muuka7/codex-account-switcher/releases):
+
+| Download | Platform |
+| --- | --- |
+| `CodexAccountSwitcher-<version>-arm64.dmg` | macOS, Apple Silicon |
+| `CodexAccountSwitcher-<version>-x64.dmg` | macOS, Intel |
+| `CodexAccountSwitcher-Setup-<version>-x64.exe` | Windows 10/11, 64-bit |
+
+Because this repository is private, downloading a release requires a GitHub
+account with access to it. Check what you downloaded against `SHA256SUMS.txt`
+before installing.
+
+### The builds are unsigned
+
+Signing and notarization need the repository owner's identities and are
+deliberately not configured, so both systems warn on first launch.
+
+On **macOS**, drag the app to Applications, then either right-click it and choose
+**Open**, or clear the quarantine flag:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Codex Account Switcher.app"
+```
+
+On **Windows**, SmartScreen shows "Windows protected your PC". Choose
+**More info**, then **Run anyway**.
+
 ## Development
 
 ```bash
@@ -46,6 +76,8 @@ npm run pack:win
 ```
 
 The macOS build targets Intel and Apple Silicon DMGs. The Windows build targets an x64 NSIS installer. Electron Fuse hardening is applied to both packaged executables.
+
+Each command only builds for the platform it runs on — a DMG cannot be produced on Windows. Releases are therefore built by GitHub Actions on both a macOS and a Windows runner, and pushing a `v*` tag publishes the installers to the Releases page. See `RELEASING.md`.
 
 Code signing and notarization are intentionally not preconfigured because they require the private repository owner's signing identities and credentials. Configure signing/notarization before distributing outside your own development machines.
 

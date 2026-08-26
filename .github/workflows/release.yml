@@ -1,0 +1,138 @@
+name: Release
+
+# A macOS DMG can only be produced on a macOS runner, so the two platforms are
+# built in parallel and their artifacts are collected into a single release.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and release (for example v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS
+            script: 'pack:mac'
+            artifact: installers-macos
+          - os: windows-latest
+            label: Windows
+            script: 'pack:win'
+            artifact: installers-windows
+    steps:
+      - name: Check out ${{ inputs.tag || github.ref_name }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - name: Package
+        run: npm run ${{ matrix.script }}
+        env:
+          # The project ships unsigned on purpose: signing identities belong to
+          # the repository owner. Without this, electron-builder tries to find
+          # and use a keychain identity on the macOS runner and fails.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            release/*.dmg
+            release/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksum the installers
+        working-directory: dist
+        run: |
+          ls -la
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Compose release notes
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          cat > notes.md <<'NOTES'
+          Prebuilt installers for macOS and Windows. Both are produced by this
+          repository's Release workflow from the tagged commit.
+
+          | Download | Platform |
+          | --- | --- |
+          | `CodexAccountSwitcher-*-arm64.dmg` | macOS, Apple Silicon |
+          | `CodexAccountSwitcher-*-x64.dmg` | macOS, Intel |
+          | `CodexAccountSwitcher-Setup-*-x64.exe` | Windows 10/11, 64-bit |
+
+          ## These builds are not code-signed
+
+          Signing and notarization need the repository owner's identities, so
+          they are deliberately not configured. Both operating systems will warn
+          you the first time you open the app.
+
+          **macOS** — the app is quarantined on download. After dragging it to
+          Applications, either right-click the app and choose **Open**, or clear
+          the quarantine flag:
+
+          ```
+          xattr -dr com.apple.quarantine "/Applications/Codex Account Switcher.app"
+          ```
+
+          **Windows** — SmartScreen shows "Windows protected your PC". Choose
+          **More info**, then **Run anyway**.
+
+          Verify what you downloaded against `SHA256SUMS.txt` before installing.
+
+          ## After installing
+
+          Sign in to the official Codex app first, then follow **First use** in
+          the README. Do not use Codex's own Logout action to add accounts —
+          start from the switcher's **Add another account** instead.
+
+          See `CHANGELOG.md` for what changed.
+          NOTES
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --title "Codex Account Switcher $TAG" \
+            --notes-file notes.md \
+            --verify-tag \
+            dist/*.dmg dist/*.exe dist/SHA256SUMS.txt
