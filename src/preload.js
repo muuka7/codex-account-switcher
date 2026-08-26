@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('codexSwitcher', Object.freeze({
   getState: () => ipcRenderer.invoke('state:get'),
+  getLiveAccount: () => ipcRenderer.invoke('state:live'),
   importCurrent: (name) => ipcRenderer.invoke('account:import-current', name),
   prepareNewAccount: () => ipcRenderer.invoke('account:prepare-new'),
   prepareReauth: (id) => ipcRenderer.invoke('account:prepare-reauth', id),

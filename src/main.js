@@ -765,6 +765,19 @@ function prettyAccelerator(accelerator) {
   return String(accelerator).replaceAll('Control', 'Ctrl').replaceAll('Super', 'Win').replaceAll('+', ' + ');
 }
 
+/**
+ * Read-only view of the login Codex is using right now. Used by the renderer
+ * to tell you which account is live without waiting for a switch.
+ */
+async function getLiveAccount() {
+  try {
+    const identity = deriveIdentity(await readCurrentAuth());
+    return { present: true, email: identity.email || null, planType: identity.planType || null };
+  } catch {
+    return { present: false, email: null, planType: null };
+  }
+}
+
 function publicState(index, warning = null) {
   const normalized = normalizeIndex(index);
   const pendingTarget = normalized.pendingLogin?.accountId
@@ -877,6 +890,7 @@ function createWindow(settings) {
 
 function installIpc() {
   ipcMain.handle('state:get', getState);
+  ipcMain.handle('state:live', getLiveAccount);
   ipcMain.handle('account:import-current', (_event, name) => importCurrentAccount(name));
   ipcMain.handle('account:prepare-new', () => prepareNewAccount());
   ipcMain.handle('account:prepare-reauth', (_event, id) => prepareReauth(id));

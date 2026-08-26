@@ -292,6 +292,22 @@ button, input { font: inherit; color: inherit; }
 .avatar.tone-2 { background: var(--tone-2); }
 .avatar.tone-3 { background: var(--tone-3); }
 
+/* Credential freshness: a dot on the avatar, spelled out in the meta line */
+.avatar-wrap { position: relative; flex: 0 0 auto; }
+.health-dot {
+  display: block; position: absolute; right: -2px; bottom: -2px;
+  width: 11px; height: 11px; border: 2px solid var(--surface); border-radius: 50%;
+  background: var(--ink-3);
+}
+.health-dot.fresh { background: var(--ok); }
+.health-dot.aging { background: var(--warn); }
+.health-dot.stale { background: var(--bad); }
+.health-dot.unknown { background: var(--ink-3); }
+.acct-meta .health-label.aging { color: var(--warn); font-weight: 600; }
+.acct-meta .health-label.stale { color: var(--bad); font-weight: 600; }
+
+.usage-control { display: flex; align-items: center; gap: var(--s2); }
+
 .health-dot { display: inline-block; width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--ink-3); }
 .health-dot.fresh { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 14%, transparent); }
 .health-dot.aging { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 14%, transparent); }
@@ -343,11 +359,14 @@ kbd {
 /* =========================================================================
    Popover menu
    ========================================================================= */
+.menu-anchor { position: relative; }
 .menu {
-  position: fixed; z-index: 40; min-width: 210px; padding: var(--s1);
+  position: absolute; z-index: 40; top: calc(100% + 4px); right: 0;
+  min-width: 210px; padding: var(--s1);
   border: 1px solid var(--line-2); border-radius: var(--r-md);
   background: var(--surface); box-shadow: var(--shadow-2);
 }
+.menu.drop-up { top: auto; bottom: calc(100% + 4px); }
 .menu button {
   display: flex; align-items: center; gap: var(--s3); width: 100%;
   min-height: 32px; padding: 0 var(--s2); border: 0; border-radius: var(--r-sm);
@@ -440,6 +459,8 @@ input[type="text"]:disabled { opacity: .5; }
    Dialogs
    ========================================================================= */
 .dialog-layer { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: var(--s5); }
+/* Confirmation can be raised from inside the settings sheet, so it sits above. */
+#confirm-dialog { z-index: 60; }
 .dialog-layer .backdrop { position: absolute; inset: 0; background: var(--overlay); }
 .dialog {
   position: relative; width: min(430px, 100%); max-height: calc(100vh - 40px); overflow-y: auto;
