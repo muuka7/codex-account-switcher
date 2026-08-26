@@ -317,7 +317,7 @@ function accountCard(account, position, state) {
   if (!active) {
     const switchBtn = document.createElement('button');
     switchBtn.type = 'button';
-    switchBtn.className = 'btn btn-primary';
+    switchBtn.className = 'btn btn-switch';
     switchBtn.dataset.blocksOnBusy = 'true';
     switchBtn.innerHTML = codexIcon(account.isActive ? 'rotate' : 'arrow');
     const label = document.createElement('span');

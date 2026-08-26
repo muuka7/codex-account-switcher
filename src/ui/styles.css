@@ -173,6 +173,11 @@ button, input { font: inherit; color: inherit; }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--ink-2); font-weight: 500; }
 .btn-ghost:hover:not(:disabled) { background: var(--surface-3); color: var(--ink); }
 
+/* Sits on every inactive card, so it stays outlined at rest and only fills on
+   intent — a solid accent here would out-shout the active account. */
+.btn-switch { border-color: var(--accent-line); background: transparent; color: var(--accent-text); font-weight: 650; }
+.btn-switch:hover:not(:disabled) { border-color: var(--accent); background: var(--accent); color: var(--accent-on); }
+
 .btn-danger { color: var(--bad); border-color: var(--bad-line); background: transparent; }
 .btn-danger:hover:not(:disabled) { background: var(--bad-soft); }
 
@@ -262,25 +267,30 @@ button, input { font: inherit; color: inherit; }
 .acct {
   display: flex; align-items: center; gap: var(--s3);
   position: relative; padding: var(--s3) var(--s3) var(--s3) var(--s4);
-  border: 1px solid var(--line); border-radius: var(--r-md);
-  background: var(--surface); box-shadow: var(--shadow-1);
-  transition: border-color var(--dur) var(--ease);
+  border: 1px solid var(--line); border-left-width: 4px; border-radius: var(--r-md);
+  background: var(--surface);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .acct:hover { border-color: var(--line-2); }
-.acct.is-selected { border-color: var(--focus); background: var(--surface-2); }
-.acct::before {
-  position: absolute; top: 12px; bottom: 12px; left: 0; width: 3px;
-  border-radius: 0 3px 3px 0; content: ""; background: transparent;
-  transition: background var(--dur) var(--ease);
+
+/* Which account Codex is using right now is the one question this screen must
+   answer at a glance. The active card is the only tinted, lifted, rail-marked
+   one, and the only card carrying a filled chip. */
+.acct.is-active {
+  border-color: var(--ok-line); border-left-color: var(--ok);
+  background: var(--ok-soft); box-shadow: var(--shadow-1);
 }
-.acct.is-active::before { background: var(--ok); }
-.acct.is-pending::before { background: var(--warn); }
-.acct.is-busy { opacity: .6; }
-.acct-select {
-  display: flex; align-items: center; gap: var(--s3); min-width: 0; flex: 1;
-  padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer;
+.acct.is-active .acct-name strong { font-weight: 700; }
+.acct.is-active .acct-meta { color: var(--ink-2); }
+.acct.is-active .chip-ok { border-color: var(--ok); background: var(--ok); color: var(--canvas); }
+.acct.is-active .health-dot { border-color: var(--ok-soft); }
+.acct.is-active kbd { border-color: var(--ok-line); background: transparent; }
+
+.acct.is-pending {
+  border-color: var(--warn-line); border-left-color: var(--warn);
+  background: var(--warn-soft);
 }
-.acct-select:hover { background: transparent; }
+.acct.is-pending .health-dot { border-color: var(--warn-soft); }
 
 .avatar {
   display: grid; place-items: center; flex: 0 0 auto;
