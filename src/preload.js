@@ -9,6 +9,11 @@ contextBridge.exposeInMainWorld('codexSwitcher', Object.freeze({
   cancelPendingLogin: () => ipcRenderer.invoke('account:cancel-pending'),
   switchAccount: (id) => ipcRenderer.invoke('account:switch', id),
   removeAccount: (id) => ipcRenderer.invoke('account:remove', id),
+  setAccountShortcut: (id, accelerator) => ipcRenderer.invoke('account:set-shortcut', id, accelerator),
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  setSettings: (changes) => ipcRenderer.invoke('settings:set', changes),
+  getUsage: () => ipcRenderer.invoke('usage:get'),
+  clearUsage: () => ipcRenderer.invoke('usage:clear'),
   openCodex: () => ipcRenderer.invoke('codex:open'),
   openStoreFolder: () => ipcRenderer.invoke('folder:open-store'),
 }));

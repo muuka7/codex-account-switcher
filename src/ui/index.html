@@ -8,62 +8,302 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <main>
-    <header>
-      <div>
-        <p class="eyebrow">CODEX</p>
-        <h1>Accounts</h1>
+  <div class="shell">
+    <div id="progress" class="progress" hidden></div>
+
+    <header class="titlebar">
+      <div class="mark" aria-hidden="true">C</div>
+      <div class="wordmark">
+        <strong>Codex Account Switcher</strong>
+        <span>Local only — nothing leaves this device</span>
       </div>
-      <span id="status" class="status">Local only</span>
+      <div class="titlebar-actions">
+        <button id="open-codex" class="btn btn-ghost" type="button">
+          <span class="btn-label">Open Codex</span><span data-icon="external"></span>
+        </button>
+        <button id="open-settings" class="btn btn-icon" type="button" aria-label="Settings" title="Settings">
+          <span data-icon="settings"></span>
+        </button>
+      </div>
     </header>
 
-    <section id="active-card" class="active-card" aria-live="polite">
-      <div class="active-dot"></div>
-      <div>
-        <div class="label">SAVED ACTIVE ACCOUNT</div>
-        <strong id="active-name">None saved</strong>
-        <div id="active-email" class="muted"></div>
-      </div>
-    </section>
+    <div class="scroll">
+      <main class="page">
+        <div id="alerts" class="stack"></div>
 
-    <section id="pending-card" class="pending-card" hidden aria-live="polite">
-      <div class="label" id="pending-title">SIGN-IN REQUIRED</div>
-      <strong id="pending-message"></strong>
-      <p id="pending-help" class="hint"></p>
-      <div class="pending-actions">
-        <button id="complete-reauth" class="primary" hidden>Complete re-auth</button>
-        <button id="cancel-pending">Cancel and restore saved account</button>
-      </div>
-    </section>
+        <!-- Sign-in takeover: shown only while a login flow is pending -->
+        <section id="pending" class="notice notice-warn stacked" hidden>
+          <span class="notice-icon" data-icon="alert"></span>
+          <div class="notice-body">
+            <strong id="pending-title">Waiting for Codex sign-in</strong>
+            <p id="pending-message"></p>
+          </div>
+          <div class="notice-actions">
+            <button id="pending-complete" class="btn btn-primary" type="button" hidden>Finish re-authentication</button>
+            <button id="pending-resume" class="btn btn-primary" type="button" hidden>Continue adding account</button>
+            <button id="pending-cancel" class="btn" type="button">Cancel and restore</button>
+          </div>
+        </section>
 
-    <section>
-      <div id="accounts" class="accounts"></div>
-      <p id="empty" class="empty">Sign into an account in the official Codex app, then import its current local authentication state.</p>
-    </section>
+        <!-- Contextual: the live Codex login is not one of the saved snapshots -->
+        <section id="live-card" class="notice notice-accent stacked" hidden>
+          <span class="notice-icon" data-icon="shield"></span>
+          <div class="notice-body">
+            <strong id="live-title">Codex is signed in to an account you have not saved</strong>
+            <p id="live-message"></p>
+          </div>
+          <div class="notice-actions">
+            <button id="live-save" class="btn btn-primary" type="button">
+              <span data-icon="plus"></span>Save this account
+            </button>
+          </div>
+        </section>
 
-    <section class="add-account">
-      <div class="section-heading">
-        <div>
-          <div class="label">ACCOUNT ONBOARDING</div>
-          <strong>Add or capture an account</strong>
+        <div class="section-head">
+          <h2 id="accounts-heading">Saved accounts</h2>
+          <span id="count" class="count"></span>
+          <span class="spacer"></span>
         </div>
-        <button id="prepare-new" class="quiet">Add another account safely</button>
-      </div>
 
-      <label for="display-name">Import the account currently signed into Codex</label>
-      <div class="row">
-        <input id="display-name" maxlength="60" placeholder="e.g. Personal or Work" autocomplete="off" />
-        <button id="import-btn" class="primary">Import</button>
+        <ul id="accounts" class="acct-list" aria-labelledby="accounts-heading"></ul>
+
+        <div id="empty" class="empty" hidden>
+          <span class="empty-mark" data-icon="users"></span>
+          <strong>No accounts saved yet</strong>
+          <p>Sign in to Codex normally, then save that login here as your first account.</p>
+        </div>
+
+        <div class="add-row">
+          <button id="add-account" class="btn" type="button">
+            <span data-icon="plus"></span>Add another account
+          </button>
+        </div>
+
+        <p class="footnote">
+          <span data-icon="lock" class="icon-wrap"></span>
+          <span>Inactive accounts are encrypted with your OS account.</span>
+          <span class="sep">·</span>
+          <button id="open-store" class="btn-link" type="button">Show local data</button>
+        </p>
+      </main>
+    </div>
+  </div>
+
+  <!-- ===================== Settings sheet ===================== -->
+  <div id="settings-sheet" class="sheet-layer" role="dialog" aria-modal="true" aria-labelledby="settings-heading" hidden>
+    <header class="sheet-head">
+      <button id="settings-back" class="btn btn-icon" type="button" aria-label="Back to accounts" title="Back">
+        <span data-icon="back"></span>
+      </button>
+      <h2 id="settings-heading">Settings</h2>
+    </header>
+    <div class="scroll">
+      <div class="page stack">
+
+        <div class="section-head"><h2>Appearance</h2></div>
+        <div class="card">
+          <div class="setting inline">
+            <div class="setting-copy">
+              <strong>Theme</strong>
+              <p>Follow the system setting, or pin one.</p>
+            </div>
+            <div class="setting-control">
+              <div id="theme-seg" class="seg" role="group" aria-label="Theme"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-head"><h2>Keyboard shortcuts</h2><span class="count">work anywhere</span></div>
+        <div class="card">
+          <div id="shortcut-rows" class="shortcut-rows"></div>
+        </div>
+
+        <div class="section-head"><h2>Window &amp; startup</h2></div>
+        <div class="card">
+          <div class="setting column">
+            <div class="setting-copy">
+              <strong>Launch size</strong>
+              <p>The size this window opens at.</p>
+            </div>
+            <div id="presets" class="presets" role="group" aria-label="Launch size"></div>
+          </div>
+          <div class="setting inline">
+            <div class="setting-copy">
+              <strong>Open at login</strong>
+              <p>Start the switcher when you sign in to this computer.</p>
+            </div>
+            <div class="setting-control">
+              <label class="toggle">
+                <input id="launch-on-login" type="checkbox" />
+                <span class="track"></span>
+                <span class="sr-only">Open at login</span>
+              </label>
+            </div>
+          </div>
+          <div class="setting inline">
+            <div class="setting-copy">
+              <strong>Remember exact last size</strong>
+              <p id="last-window-size">Resize the window to save it.</p>
+            </div>
+            <div class="setting-control">
+              <label class="toggle">
+                <input id="remember-window-size" type="checkbox" />
+                <span class="track"></span>
+                <span class="sr-only">Remember exact last size</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-head"><h2>Local activity</h2></div>
+        <div class="card">
+          <div class="setting inline">
+            <div class="setting-copy">
+              <strong>Switcher usage tracking</strong>
+              <p id="usage-summary">Off · counts opens and switches locally</p>
+            </div>
+            <div class="setting-control usage-control">
+              <label class="toggle">
+                <input id="usage-tracking" type="checkbox" />
+                <span class="track"></span>
+                <span class="sr-only">Usage tracking</span>
+              </label>
+              <button id="clear-usage" class="btn btn-sm btn-danger" type="button" hidden>Clear</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-head"><h2>How switching works</h2></div>
+        <div class="card">
+          <div class="setting">
+            <div class="setting-copy">
+              <strong>Never use Codex's own Logout</strong>
+              <p>Logging out inside Codex can invalidate the saved snapshot. To add or refresh an account, always start from this app.</p>
+            </div>
+          </div>
+          <div class="setting">
+            <div class="setting-copy">
+              <strong>Switching restarts Codex</strong>
+              <p>The switcher saves the live credential, swaps in the encrypted snapshot, then reopens Codex.</p>
+            </div>
+          </div>
+          <div class="setting inline">
+            <div class="setting-copy">
+              <strong>Local data</strong>
+              <p>Encrypted snapshots and settings live in this folder.</p>
+            </div>
+            <div class="setting-control">
+              <button id="settings-open-store" class="btn" type="button">
+                <span data-icon="database"></span>Open folder
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <p class="footnote"><span id="app-version">Version 0.1 — hardened build</span></p>
       </div>
-      <p class="hint">For additional accounts, use <strong>Add another account safely</strong>. Do not use Codex's Logout action; the switcher temporarily clears only the local login file so existing saved sessions are not revoked.</p>
+    </div>
+  </div>
+
+  <!-- ===================== Confirm dialog ===================== -->
+  <div id="confirm-dialog" class="dialog-layer" hidden>
+    <div class="backdrop" data-close></div>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+      <div id="confirm-icon" class="dialog-icon"><span data-icon="alert"></span></div>
+      <h2 id="confirm-title">Are you sure?</h2>
+      <p id="confirm-message"></p>
+      <div class="dialog-actions">
+        <button id="confirm-cancel" class="btn" type="button">Cancel</button>
+        <button id="confirm-accept" class="btn btn-primary" type="button">Continue</button>
+      </div>
     </section>
+  </div>
 
-    <footer>
-      <button id="open-codex" class="quiet">Open Codex</button>
-      <button id="open-store" class="quiet">Local data</button>
-      <span class="shortcut">⌃⌥ / Ctrl+Alt 1–9</span>
-    </footer>
-  </main>
+  <!-- ===================== Add / re-auth flow ===================== -->
+  <div id="add-dialog" class="dialog-layer" hidden>
+    <div class="backdrop" data-close></div>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="add-title">
+      <div class="steps">
+        <span id="step-1" class="step" aria-current="true"><span class="num">1</span>Sign in</span>
+        <span class="step-line" aria-hidden="true"></span>
+        <span id="step-2" class="step"><span class="num">2</span>Name and save</span>
+      </div>
+
+      <div id="add-step-1">
+        <h2 id="add-title">Add another account</h2>
+        <p>The switcher will close Codex, put your current login safely into the vault, and reopen Codex at its sign-in screen. Sign in there as the new account.</p>
+        <div class="notice notice-warn" role="note">
+          <span class="notice-icon" data-icon="alert"></span>
+          <div class="notice-body">
+            <p>Start from here, not from Codex's own Logout button.</p>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button id="add-cancel" class="btn" type="button">Cancel</button>
+          <button id="add-prepare" class="btn btn-primary" type="button">
+            <span data-icon="shield"></span>Open Codex sign-in
+          </button>
+        </div>
+      </div>
+
+      <div id="add-step-2" hidden>
+        <h2 id="add-title-2">Name this account</h2>
+        <p id="add-step-2-lede">Finish signing in inside Codex, then give this login a name to save it here.</p>
+        <div id="add-detected" class="detected" hidden>
+          <span class="icon-wrap" data-icon="check"></span><span id="add-detected-text"></span>
+        </div>
+        <div id="add-waiting" class="waiting">
+          <span class="pulse" aria-hidden="true"></span><span>Watching for a completed Codex sign-in…</span>
+        </div>
+        <div class="field">
+          <label for="add-name">Display name</label>
+          <input id="add-name" type="text" maxlength="60" placeholder="Work" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="dialog-actions">
+          <button id="add-cancel-pending" class="btn" type="button">Cancel and restore</button>
+          <button id="add-import" class="btn btn-primary" type="button">Save account</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== Save current login ===================== -->
+  <div id="save-dialog" class="dialog-layer" hidden>
+    <div class="backdrop" data-close></div>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="save-title">
+      <div class="dialog-icon"><span data-icon="shield"></span></div>
+      <h2 id="save-title">Save this account</h2>
+      <p id="save-lede">The current Codex login will be encrypted with your operating system account and stored on this device.</p>
+      <div class="field">
+        <label for="save-name">Display name</label>
+        <input id="save-name" type="text" maxlength="60" placeholder="Personal" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="dialog-actions">
+        <button id="save-cancel" class="btn" type="button">Cancel</button>
+        <button id="save-confirm" class="btn btn-primary" type="button">Encrypt and save</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== Shortcut capture ===================== -->
+  <div id="shortcut-dialog" class="dialog-layer" hidden>
+    <div class="backdrop" data-close></div>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="shortcut-title">
+      <div class="dialog-icon"><span data-icon="keyboard"></span></div>
+      <h2 id="shortcut-title">Set shortcut</h2>
+      <p>Press the combination you want. It needs at least one modifier — Ctrl, Alt, Shift or the Windows/Command key.</p>
+      <button id="shortcut-capture" class="capture" type="button">
+        <span id="shortcut-display">Press keys…</span>
+      </button>
+      <p id="shortcut-error" class="form-error" hidden></p>
+      <div class="dialog-actions">
+        <button id="shortcut-cancel" class="btn" type="button">Cancel</button>
+        <button id="shortcut-save" class="btn btn-primary" type="button">Save shortcut</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="icons.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

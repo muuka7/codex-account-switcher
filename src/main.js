@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, safeStorage, session, globalShortcut, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, session, globalShortcut, shell, Tray, Menu, nativeImage } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
@@ -11,14 +11,28 @@ const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
 const AUTH_PATH = path.join(CODEX_HOME, 'auth.json');
 const STORE_ROOT = path.join(app.getPath('userData'), 'vault');
 const INDEX_PATH = path.join(app.getPath('userData'), 'accounts.json');
+const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
+const USAGE_PATH = path.join(app.getPath('userData'), 'usage.json');
 const BACKUP_PATH = path.join(app.getPath('userData'), 'last-auth-backup.secure');
 const WINDOWS_CODEX_AUMID = 'OpenAI.Codex_2p2nqsd0c76g0!App';
 const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
+const WINDOW_PRESETS = Object.freeze({
+  portrait: { label: 'Portrait', width: 420, height: 720 },
+  compact: { label: 'Compact', width: 800, height: 620 },
+  standard: { label: 'Standard', width: 980, height: 700 },
+  wide: { label: 'Wide', width: 1180, height: 780 },
+});
 
 let mainWindow;
+let tray;
 let operationQueue = Promise.resolve();
 let configCompatibility = { changed: false, backupPath: null };
+let registeredAccelerators = new Set();
+let resizeSaveTimer = null;
+
+const MIN_WINDOW_SIZE = Object.freeze({ width: 360, height: 560 });
+const MAX_WINDOW_SIZE = Object.freeze({ width: 2400, height: 1600 });
 
 function assertSupportedPlatform() {
   if (!isMac && !isWindows) throw new Error('This hardened build currently supports macOS and Windows only.');
@@ -51,9 +65,11 @@ async function writeAtomic(filePath, bytes) {
 
 function normalizeIndex(index) {
   const normalized = index && typeof index === 'object' ? index : {};
-  normalized.version = 2;
+  normalized.version = 3;
   normalized.activeId = normalized.activeId || null;
-  normalized.accounts = Array.isArray(normalized.accounts) ? normalized.accounts : [];
+  normalized.accounts = Array.isArray(normalized.accounts)
+    ? normalized.accounts.map((account) => ({ ...(account || {}), shortcut: account?.shortcut || null }))
+    : [];
   normalized.pendingLogin = normalized.pendingLogin || null;
   return normalized;
 }
@@ -70,6 +86,160 @@ async function readIndex() {
 async function writeIndex(index) {
   const normalized = normalizeIndex(index);
   await writeAtomic(INDEX_PATH, Buffer.from(`${JSON.stringify(normalized, null, 2)}\n`, 'utf8'));
+}
+
+function normalizeSettings(settings) {
+  const normalized = settings && typeof settings === 'object' ? settings : {};
+  normalized.version = 1;
+  normalized.windowPreset = WINDOW_PRESETS[normalized.windowPreset] ? normalized.windowPreset : 'standard';
+  normalized.launchOnLogin = Boolean(normalized.launchOnLogin);
+  normalized.rememberLastWindowSize = Boolean(normalized.rememberLastWindowSize);
+  normalized.usageTracking = Boolean(normalized.usageTracking);
+  const width = Number(normalized.lastWindowSize?.width);
+  const height = Number(normalized.lastWindowSize?.height);
+  normalized.lastWindowSize = Number.isFinite(width) && Number.isFinite(height)
+    ? {
+        width: Math.min(MAX_WINDOW_SIZE.width, Math.max(MIN_WINDOW_SIZE.width, Math.round(width))),
+        height: Math.min(MAX_WINDOW_SIZE.height, Math.max(MIN_WINDOW_SIZE.height, Math.round(height))),
+      }
+    : null;
+  return normalized;
+}
+
+async function readSettings() {
+  try {
+    return normalizeSettings(JSON.parse(await fs.readFile(SETTINGS_PATH, 'utf8')));
+  } catch (error) {
+    if (error.code === 'ENOENT') return normalizeSettings({});
+    throw error;
+  }
+}
+
+async function writeSettings(settings) {
+  const normalized = normalizeSettings(settings);
+  await writeAtomic(SETTINGS_PATH, Buffer.from(`${JSON.stringify(normalized, null, 2)}\n`, 'utf8'));
+}
+
+function publicSettings(settings) {
+  const normalized = normalizeSettings(settings);
+  return {
+    windowPreset: normalized.windowPreset,
+    launchOnLogin: normalized.launchOnLogin,
+    rememberLastWindowSize: normalized.rememberLastWindowSize,
+    lastWindowSize: normalized.lastWindowSize,
+    usageTracking: normalized.usageTracking,
+    windowPresets: WINDOW_PRESETS,
+  };
+}
+
+function applyLaunchOnLogin(enabled) {
+  if (!isMac && !isWindows) return;
+  app.setLoginItemSettings({ openAtLogin: Boolean(enabled) });
+}
+
+async function getSettings() {
+  return publicSettings(await readSettings());
+}
+
+async function setSettings(changes = {}) {
+  return queueOperation(async () => {
+    const settings = await readSettings();
+    if (changes.windowPreset !== undefined) {
+      if (!WINDOW_PRESETS[changes.windowPreset]) throw new Error('Unknown window size preset.');
+      settings.windowPreset = changes.windowPreset;
+    }
+    if (changes.launchOnLogin !== undefined) settings.launchOnLogin = Boolean(changes.launchOnLogin);
+    if (changes.rememberLastWindowSize !== undefined) settings.rememberLastWindowSize = Boolean(changes.rememberLastWindowSize);
+    if (changes.usageTracking !== undefined) settings.usageTracking = Boolean(changes.usageTracking);
+    if (changes.windowPreset !== undefined) {
+      const preset = WINDOW_PRESETS[settings.windowPreset];
+      settings.lastWindowSize = { width: preset.width, height: preset.height };
+    }
+    await writeSettings(settings);
+    applyLaunchOnLogin(settings.launchOnLogin);
+    if (mainWindow && changes.windowPreset !== undefined) {
+      const preset = WINDOW_PRESETS[settings.windowPreset];
+      mainWindow.setSize(preset.width, preset.height);
+      mainWindow.center();
+    }
+    return publicSettings(settings);
+  });
+}
+
+function normalizeUsage(usage) {
+  const normalized = usage && typeof usage === 'object' ? usage : {};
+  const byAccount = normalized.byAccount && typeof normalized.byAccount === 'object' ? normalized.byAccount : {};
+  return {
+    version: 1,
+    openCount: Number.isFinite(Number(normalized.openCount)) ? Number(normalized.openCount) : 0,
+    switchCount: Number.isFinite(Number(normalized.switchCount)) ? Number(normalized.switchCount) : 0,
+    importCount: Number.isFinite(Number(normalized.importCount)) ? Number(normalized.importCount) : 0,
+    reauthCount: Number.isFinite(Number(normalized.reauthCount)) ? Number(normalized.reauthCount) : 0,
+    byAccount,
+    firstTrackedAt: normalized.firstTrackedAt || null,
+    lastActivityAt: normalized.lastActivityAt || null,
+  };
+}
+
+async function readUsage() {
+  try {
+    return normalizeUsage(JSON.parse(await fs.readFile(USAGE_PATH, 'utf8')));
+  } catch (error) {
+    if (error.code === 'ENOENT') return normalizeUsage({});
+    throw error;
+  }
+}
+
+async function writeUsage(usage) {
+  await writeAtomic(USAGE_PATH, Buffer.from(`${JSON.stringify(normalizeUsage(usage), null, 2)}\n`, 'utf8'));
+}
+
+async function recordUsage(kind, accountId = null) {
+  const settings = await readSettings();
+  if (!settings.usageTracking) return;
+  const usage = await readUsage();
+  const now = new Date().toISOString();
+  usage.firstTrackedAt ||= now;
+  usage.lastActivityAt = now;
+  if (kind === 'open') usage.openCount += 1;
+  if (kind === 'switch') usage.switchCount += 1;
+  if (kind === 'import') usage.importCount += 1;
+  if (kind === 'reauth') usage.reauthCount += 1;
+  if (accountId) {
+    const accountUsage = usage.byAccount[accountId] && typeof usage.byAccount[accountId] === 'object'
+      ? usage.byAccount[accountId]
+      : {};
+    accountUsage[kind] = (Number(accountUsage[kind]) || 0) + 1;
+    accountUsage.lastActivityAt = now;
+    usage.byAccount[accountId] = accountUsage;
+  }
+  await writeUsage(usage);
+}
+
+async function getUsage() {
+  const settings = await readSettings();
+  if (!settings.usageTracking) return { enabled: false, openCount: 0, switchCount: 0, importCount: 0, reauthCount: 0, byAccount: {}, firstTrackedAt: null, lastActivityAt: null, hasData: false };
+  const usage = await readUsage();
+  return { enabled: true, ...usage, hasData: Boolean(usage.firstTrackedAt) };
+}
+
+async function clearUsage() {
+  await fs.rm(USAGE_PATH, { force: true });
+  return getUsage();
+}
+
+function scheduleWindowSizeSave() {
+  if (resizeSaveTimer) clearTimeout(resizeSaveTimer);
+  resizeSaveTimer = setTimeout(() => {
+    resizeSaveTimer = null;
+    queueOperation(async () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      const [width, height] = mainWindow.getSize();
+      const settings = await readSettings();
+      settings.lastWindowSize = { width, height };
+      await writeSettings(settings);
+    }).catch(() => {});
+  }, 250);
 }
 
 function protect(bytes) {
@@ -155,6 +325,9 @@ async function importCurrentAccount(displayName) {
       index.activeId = existing.id;
       index.pendingLogin = null;
       await writeIndex(index);
+      registerShortcuts(publicState(index));
+      updateTrayMenu().catch(() => {});
+      recordUsage('import', existing.id).catch(() => {});
       return publicState(index, `Updated the existing saved account ${existing.displayName}.`);
     }
 
@@ -170,6 +343,9 @@ async function importCurrentAccount(displayName) {
     index.activeId = id;
     index.pendingLogin = null;
     await writeIndex(index);
+    registerShortcuts(publicState(index));
+    updateTrayMenu().catch(() => {});
+    recordUsage('import', id).catch(() => {});
     return publicState(index);
   });
 }
@@ -364,6 +540,7 @@ async function prepareLogin(mode, accountId = null) {
       warning = `Local login was prepared, but Codex could not be reopened automatically: ${error.message}`;
     }
 
+    updateTrayMenu().catch(() => {});
     return publicState(index, warning);
   });
 }
@@ -400,6 +577,8 @@ async function completeReauth() {
     index.activeId = target.id;
     index.pendingLogin = null;
     await writeIndex(index);
+    updateTrayMenu().catch(() => {});
+    recordUsage('reauth', target.id).catch(() => {});
     return publicState(index, `${target.displayName} was re-authenticated successfully.`);
   });
 }
@@ -417,6 +596,7 @@ async function cancelPendingLogin() {
     if (!active) {
       index.pendingLogin = null;
       await writeIndex(index);
+      updateTrayMenu().catch(() => {});
       return publicState(index, 'Pending sign-in was cleared. No saved active account was available to restore.');
     }
 
@@ -427,6 +607,7 @@ async function cancelPendingLogin() {
     await writeAtomic(AUTH_PATH, activeAuth);
     index.pendingLogin = null;
     await writeIndex(index);
+    updateTrayMenu().catch(() => {});
 
     let warning = null;
     try {
@@ -435,6 +616,7 @@ async function cancelPendingLogin() {
       warning = `Pending sign-in was cancelled and ${active.displayName} was restored, but Codex could not be reopened automatically: ${error.message}`;
     }
 
+    updateTrayMenu().catch(() => {});
     return publicState(index, warning);
   });
 }
@@ -474,6 +656,7 @@ async function switchAccount(targetId) {
       target.identity = { ...target.identity, ...deriveIdentity(targetAuth) };
       target.lastSwitchedAt = new Date().toISOString();
       await writeIndex(index);
+      recordUsage('switch', target.id).catch(() => {});
     } catch (error) {
       if (original) await writeAtomic(AUTH_PATH, original).catch(() => {});
       await openCodex().catch(() => {});
@@ -487,6 +670,7 @@ async function switchAccount(targetId) {
       warning = `Account switched successfully, but Codex could not be reopened automatically: ${error.message}`;
     }
 
+    updateTrayMenu().catch(() => {});
     return publicState(index, warning);
   });
 }
@@ -499,8 +683,86 @@ async function removeAccount(id) {
     index.accounts = index.accounts.filter((a) => a.id !== id);
     await fs.rm(accountBlobPath(id), { force: true });
     await writeIndex(index);
+    registerShortcuts(publicState(index));
     return publicState(index);
   });
+}
+
+function defaultShortcutForIndex(index) {
+  return `Control+Alt+${index + 1}`;
+}
+
+function isValidAccelerator(value) {
+  const parts = String(value || '').split('+').filter(Boolean);
+  const key = parts.pop();
+  const modifiers = new Set(['Control', 'Alt', 'Shift', 'Command', 'Super']);
+  return parts.length > 0 && parts.every((part) => modifiers.has(part)) && key && !modifiers.has(key) && /^[A-Za-z0-9]+$/.test(key);
+}
+
+function accountHealth(account) {
+  const timestamps = [account.lastAuthenticatedAt, account.lastSavedAt, account.createdAt]
+    .filter(Boolean)
+    .map((value) => ({ value, timestamp: new Date(value).getTime() }))
+    .filter((item) => Number.isFinite(item.timestamp))
+    .sort((left, right) => right.timestamp - left.timestamp);
+  const updatedAt = timestamps[0]?.value || null;
+  if (!updatedAt) return { level: 'unknown', label: 'Unknown', updatedAt: null };
+  const timestamp = new Date(updatedAt).getTime();
+  if (!Number.isFinite(timestamp)) return { level: 'unknown', label: 'Unknown', updatedAt: null };
+  const ageDays = Math.max(0, Math.floor((Date.now() - timestamp) / 86400000));
+  if (ageDays <= 7) return { level: 'fresh', label: 'Fresh', updatedAt, ageDays };
+  if (ageDays <= 30) return { level: 'aging', label: 'Aging', updatedAt, ageDays };
+  return { level: 'stale', label: 'Stale', updatedAt, ageDays };
+}
+
+function registerShortcuts(state) {
+  for (const accelerator of registeredAccelerators) {
+    try { globalShortcut.unregister(accelerator); } catch {}
+  }
+  registeredAccelerators = new Set();
+  const used = new Set();
+  const failures = [];
+  state.accounts.forEach((account, index) => {
+    const accelerator = account.shortcut || defaultShortcutForIndex(index);
+    if (used.has(accelerator)) {
+      failures.push(account.displayName);
+      return;
+    }
+    try {
+      const registered = globalShortcut.register(accelerator, async () => {
+        const latest = await getState();
+        const target = latest.accounts.find((item) => item.id === account.id);
+        if (target && (!target.isActive || latest.pendingLogin)) switchAccount(target.id).catch(() => {});
+      });
+      if (registered) {
+        used.add(accelerator);
+        registeredAccelerators.add(accelerator);
+      } else failures.push(account.displayName);
+    } catch { failures.push(account.displayName); }
+  });
+  return failures;
+}
+
+async function setAccountShortcut(id, accelerator) {
+  return queueOperation(async () => {
+    assertSupportedPlatform();
+    const index = await readIndex();
+    const target = index.accounts.find((account) => account.id === id);
+    if (!target) throw new Error('Account not found.');
+    if (!isValidAccelerator(accelerator)) throw new Error('Use a valid shortcut with at least one modifier key.');
+    const duplicate = index.accounts.some((account, accountIndex) => account.id !== id && (account.shortcut || defaultShortcutForIndex(accountIndex)) === accelerator);
+    if (duplicate) throw new Error('That shortcut is already assigned to another saved account.');
+    target.shortcut = accelerator;
+    await writeIndex(index);
+    const failures = registerShortcuts(publicState(index));
+    const warning = failures.includes(target.displayName) ? `Saved the shortcut, but ${prettyAccelerator(accelerator)} is already in use by another app.` : null;
+    updateTrayMenu().catch(() => {});
+    return publicState(index, warning);
+  });
+}
+
+function prettyAccelerator(accelerator) {
+  return String(accelerator).replaceAll('Control', 'Ctrl').replaceAll('Super', 'Win').replaceAll('+', ' + ');
 }
 
 function publicState(index, warning = null) {
@@ -528,15 +790,52 @@ function publicState(index, warning = null) {
       displayName: a.displayName,
       email: a.identity?.email || null,
       planType: a.identity?.planType || null,
+      shortcut: a.shortcut || null,
       isActive: a.id === normalized.activeId,
       isPendingReauth: normalized.pendingLogin?.mode === 'reauth' && normalized.pendingLogin.accountId === a.id,
       lastSwitchedAt: a.lastSwitchedAt || null,
+      lastAuthenticatedAt: a.lastAuthenticatedAt || null,
+      health: accountHealth(a),
     })),
   };
 }
 
 async function getState() {
   return publicState(await readIndex());
+}
+
+function showMainWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+async function updateTrayMenu() {
+  if (!tray) return;
+  const state = await getState();
+  const accountItems = state.accounts.length
+    ? state.accounts.map((account) => ({
+        label: `${account.isActive ? '✓ ' : ''}${account.displayName}`,
+        enabled: !account.isActive || Boolean(state.pendingLogin),
+        click: () => switchAccount(account.id).then(updateTrayMenu).catch(() => {}),
+      }))
+    : [{ label: 'No saved accounts', enabled: false }];
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open account switcher', click: showMainWindow },
+    { type: 'separator' },
+    { label: 'Switch account', submenu: accountItems },
+    { type: 'separator' },
+    { label: 'Quit', click: () => app.quit() },
+  ]));
+}
+
+function createTray() {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="4" fill="#a3adff"/><path d="M5 4.5h6v2H7v1h3.5v2H7v2.5H5z" fill="#171a21"/></svg>';
+  tray = new Tray(nativeImage.createFromDataURL(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`));
+  tray.setToolTip(APP_NAME);
+  tray.on('click', showMainWindow);
+  updateTrayMenu().catch(() => {});
 }
 
 function installNetworkDeny() {
@@ -551,12 +850,15 @@ function hardenNavigation(win) {
   });
 }
 
-function createWindow() {
+function createWindow(settings) {
+  const preset = WINDOW_PRESETS[settings.windowPreset] || WINDOW_PRESETS.standard;
+  const remembered = settings.rememberLastWindowSize && settings.lastWindowSize;
+  const size = remembered || preset;
   mainWindow = new BrowserWindow({
-    width: 440,
-    height: 650,
-    minWidth: 400,
-    minHeight: 520,
+    width: size.width,
+    height: size.height,
+    minWidth: 360,
+    minHeight: 560,
     title: APP_NAME,
     backgroundColor: '#111111',
     webPreferences: {
@@ -569,17 +871,8 @@ function createWindow() {
   });
 
   hardenNavigation(mainWindow);
+  mainWindow.on('resize', scheduleWindowSizeSave);
   mainWindow.loadFile(path.join(__dirname, 'ui', 'index.html'));
-}
-
-function registerShortcuts() {
-  for (let i = 1; i <= 9; i += 1) {
-    globalShortcut.register(`Control+Alt+${i}`, async () => {
-      const state = await getState();
-      const account = state.accounts[i - 1];
-      if (account && (!account.isActive || state.pendingLogin)) switchAccount(account.id).catch(() => {});
-    });
-  }
 }
 
 function installIpc() {
@@ -591,6 +884,11 @@ function installIpc() {
   ipcMain.handle('account:cancel-pending', () => cancelPendingLogin());
   ipcMain.handle('account:switch', (_event, id) => switchAccount(id));
   ipcMain.handle('account:remove', (_event, id) => removeAccount(id));
+  ipcMain.handle('account:set-shortcut', (_event, id, accelerator) => setAccountShortcut(id, accelerator));
+  ipcMain.handle('settings:get', getSettings);
+  ipcMain.handle('settings:set', (_event, changes) => setSettings(changes));
+  ipcMain.handle('usage:get', getUsage);
+  ipcMain.handle('usage:clear', clearUsage);
   ipcMain.handle('codex:open', () => openCodex());
   ipcMain.handle('folder:open-store', () => shell.openPath(app.getPath('userData')));
 }
@@ -599,10 +897,14 @@ app.whenReady().then(async () => {
   assertSupportedPlatform();
   await ensureDirs();
   await ensureCodexCompatibility();
+  const settings = await readSettings();
+  applyLaunchOnLogin(settings.launchOnLogin);
   installNetworkDeny();
   installIpc();
-  createWindow();
-  registerShortcuts();
+  createWindow(settings);
+  createTray();
+  registerShortcuts(await getState());
+  recordUsage('open').catch(() => {});
 });
 
 app.on('will-quit', () => globalShortcut.unregisterAll());
