@@ -15,5 +15,8 @@ auth.json
 vault/
 accounts.json
 last-auth-backup.keychain
+last-auth-backup.secure
+settings.json
+usage.json
 .codex/
 .codex-profiles/

@@ -1,6 +1,6 @@
 # Codex Account Switcher
 
-Private, local-only account switcher for the Codex desktop app on macOS and Windows.
+Local-only account switcher for the Codex desktop app on macOS and Windows.
 
 ## Goals
 
@@ -32,9 +32,9 @@ Prebuilt installers for both platforms are attached to each entry on the
 | `CodexAccountSwitcher-<version>-x64.dmg` | macOS, Intel |
 | `CodexAccountSwitcher-Setup-<version>-x64.exe` | Windows 10/11, 64-bit |
 
-Because this repository is private, downloading a release requires a GitHub
-account with access to it. Check what you downloaded against `SHA256SUMS.txt`
-before installing.
+Check what you downloaded against `SHA256SUMS.txt` before installing. Releases
+are currently unsigned; read the warning below before distributing an installer
+to anyone who cannot inspect and build the source themselves.
 
 ### The builds are unsigned
 
@@ -79,7 +79,9 @@ The macOS build targets Intel and Apple Silicon DMGs. The Windows build targets 
 
 Each command only builds for the platform it runs on — a DMG cannot be produced on Windows. Releases are therefore built by GitHub Actions on both a macOS and a Windows runner, and pushing a `v*` tag publishes the installers to the Releases page. See `RELEASING.md`.
 
-Code signing and notarization are intentionally not preconfigured because they require the private repository owner's signing identities and credentials. Configure signing/notarization before distributing outside your own development machines.
+Code signing and notarization are intentionally not preconfigured because they
+require the maintainer's signing identities and credentials. Configure
+signing/notarization before distributing outside your own development machines.
 
 ## The interface
 
@@ -138,8 +140,9 @@ The live Codex `auth.json` must remain readable by Codex while an account is act
 
 Do not use the switcher to bypass organizational access policy or account controls. If two organizations require strict data separation, separate OS user accounts provide a stronger boundary.
 
-See `SECURITY.md` for the full threat model.
+See `SECURITY.md` for the full threat model and private vulnerability-reporting
+instructions.
 
 ## Upstream
 
-This project retains MIT attribution and is a private derivative inspired primarily by `GboyCode/CodexAuth`, with UX ideas informed by `ZOONGG/codex-swap-account`. See `NOTICE.md`.
+This project retains MIT attribution and is a derivative inspired primarily by `GboyCode/CodexAuth`, with UX ideas informed by `ZOONGG/codex-swap-account`. See `NOTICE.md`.

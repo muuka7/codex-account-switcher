@@ -2,6 +2,15 @@
 
 Notable changes to Codex Account Switcher. Dates are ISO-8601.
 
+## Unreleased
+
+- Upgraded Electron and electron-builder to remove the high-severity advisories
+  reported in the development dependency tree.
+- Added push/PR CI validation, public-repository security reporting guidance,
+  and a contributor PR review checklist.
+- Hardened renderer navigation so it can load only the packaged application
+  document, not arbitrary local `file://` URLs.
+
 ## 0.1.0 — 2026-08-26
 
 First tagged release. Prebuilt, unsigned installers for macOS (Intel and Apple
@@ -18,7 +27,7 @@ Silicon) and Windows are attached to the release on GitHub.
 - Sets `CSC_IDENTITY_AUTO_DISCOVERY=false` so electron-builder does not try to
   pick up a keychain signing identity on the macOS runner.
 - Added `RELEASING.md` covering how to cut a release, why the builds are
-  unsigned, and what private-repository distribution does and does not allow.
+  unsigned, and the limits of distributing unsigned installers.
 - Added an **Install** section to the README with the Gatekeeper and SmartScreen
   workarounds first-time users will hit.
 

@@ -1,8 +1,8 @@
 {
-  "name": "private-codex-account-switcher",
+  "name": "codex-account-switcher",
   "version": "0.1.0",
   "private": true,
-  "description": "Private, local-only Codex desktop account switcher with OS-backed credential protection.",
+  "description": "Local-only Codex desktop account switcher with OS-backed credential protection.",
   "main": "src/main.js",
   "author": "muuka7",
   "license": "MIT",
@@ -13,8 +13,8 @@
     "pack:win": "electron-builder --win nsis --x64 --publish never"
   },
   "devDependencies": {
-    "electron": "39.8.10",
-    "electron-builder": "26.8.1",
+    "electron": "44.0.0",
+    "electron-builder": "26.15.3",
     "@electron/fuses": "1.8.0"
   },
   "build": {

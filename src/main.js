@@ -4,6 +4,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
+const { pathToFileURL } = require('node:url');
 const { ensureFileCredentialStore } = require('./codex-config');
 
 const APP_NAME = 'Codex Account Switcher';
@@ -857,9 +858,10 @@ function installNetworkDeny() {
 }
 
 function hardenNavigation(win) {
+  const appUrl = pathToFileURL(path.join(__dirname, 'ui', 'index.html')).href;
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith('file://')) event.preventDefault();
+    if (url !== appUrl) event.preventDefault();
   });
 }
 

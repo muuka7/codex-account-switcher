@@ -2,6 +2,11 @@
 
 This application is intentionally narrow: it switches the local authentication state used by the official Codex desktop app on macOS and Windows.
 
+## Supported versions
+
+The latest tagged release and the current `main` branch receive security fixes.
+Older release lines are not maintained unless a release note says otherwise.
+
 ## Security guarantees
 
 - Saved account credentials are encrypted with Electron `safeStorage`, which uses macOS Keychain-backed protection on macOS and Windows DPAPI-backed protection on Windows.
@@ -36,3 +41,15 @@ For maximum separation between unrelated organizations, use separate OS user acc
 ## Reporting
 
 Do not attach real `auth.json` files, tokens, cookies, passwords, TOTP seeds, or screenshots containing secrets to GitHub issues or pull requests.
+
+Please report suspected vulnerabilities privately through [GitHub Security
+Advisories](https://github.com/muuka7/codex-account-switcher/security/advisories/new).
+Include the affected version or commit, operating system, reproduction steps,
+impact, and a suggested fix if you have one. Redact credentials and other
+personal data from all evidence. If private reporting is unavailable, contact
+the repository owner through their GitHub profile and do not publish the issue
+until a fix or mitigation has been coordinated.
+
+The maintainer will acknowledge reports when practical, investigate privately,
+and publish a release note when a fix is available. Please allow reasonable
+time for triage before public disclosure.

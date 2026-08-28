@@ -33,6 +33,25 @@ To rebuild an existing tag without moving it, run the **Release** workflow
 manually from the Actions tab and give it the tag name. Delete the existing
 release first, or `gh release create` will refuse to overwrite it.
 
+## Public-repository gate
+
+Before changing the repository visibility:
+
+1. Merge the release candidate into `main`; the current default branch must
+   contain the application, documentation, CI, and security policy.
+2. Confirm the clean-tree checks in `CONTRIBUTING.md` and review the complete
+   commit history for credentials or private data.
+3. Enable branch protection on `main` after the repository is public. Require
+   pull requests and passing CI before merging; do not allow direct pushes for
+   routine changes.
+4. Enable Dependabot security updates, secret scanning, and code scanning in
+   the repository settings, then verify that the first scans complete.
+5. Keep unsigned builds clearly labeled until macOS signing/notarization and
+   Windows code signing are configured.
+
+Changing visibility does not rewrite Git history. Treat every reachable commit,
+tag, branch, release asset, and workflow log as public after the change.
+
 ## Builds are unsigned
 
 Code signing and notarization need the repository owner's signing identities and
@@ -45,19 +64,12 @@ have to work around it — see **Install** in the README. If these builds are ev
 distributed beyond people who know and trust the source, configure signing and
 notarization first.
 
-## Who can download from a private repository
+## Distribution status
 
-Release assets on a private repository are not public. Anyone downloading them
-must be signed in to GitHub with access to the repository, and download URLs are
-not anonymously fetchable, so they cannot be pasted to someone without access.
-
-To share a build:
-
-- **With a few people** — add them as collaborators on the repository. They can
-  then open the Releases page and download normally.
-- **With anyone** — either make the repository public, or publish the installers
-  from a separate public repository. Do the latter only after reading
-  `SECURITY.md`, and only with signed builds.
+Once the repository is public, release assets can be downloaded without GitHub
+repository access. The current installers remain unsigned, so broad
+distribution should wait for code signing and notarization. Until then, keep
+the warning in the release notes and ask users to verify `SHA256SUMS.txt`.
 
 ## Verifying a build locally
 

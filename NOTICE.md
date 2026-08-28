@@ -1,6 +1,6 @@
 # Upstream attribution
 
-This private project is derived from ideas and implementation patterns reviewed in:
+This project is derived from ideas and implementation patterns reviewed in:
 
 - GboyCode/CodexAuth (MIT License), including its local-first account switching model, encrypted credential profile concept, atomic credential replacement, and macOS/Windows platform support.
 - ZOONGG/codex-swap-account (MIT License), used as UX inspiration for compact account switching and clear active-account presentation.

@@ -2,7 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-// Derived from GboyCode/CodexAuth (MIT), simplified for this private fork.
+// Derived from GboyCode/CodexAuth (MIT), simplified for this fork.
 const FILE_CREDENTIAL_STORE_LINE = 'cli_auth_credentials_store = "file"';
 
 function isTomlTableHeader(line) {
