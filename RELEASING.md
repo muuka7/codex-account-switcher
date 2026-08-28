@@ -39,14 +39,18 @@ Before changing the repository visibility:
 
 1. Merge the release candidate into `main`; the current default branch must
    contain the application, documentation, CI, and security policy.
-2. Confirm the clean-tree checks in `CONTRIBUTING.md` and review the complete
+2. Do not use the existing `v0.1.0` tag as the first public release: it
+   predates the current Electron dependency hardening. Cut a new version from
+   the merged `main` branch after validation, and clearly mark any older
+   release assets as superseded.
+3. Confirm the clean-tree checks in `CONTRIBUTING.md` and review the complete
    commit history for credentials or private data.
-3. Enable branch protection on `main` after the repository is public. Require
+4. Enable branch protection on `main` after the repository is public. Require
    pull requests and passing CI before merging; do not allow direct pushes for
    routine changes.
-4. Enable Dependabot security updates, secret scanning, and code scanning in
+5. Enable Dependabot security updates, secret scanning, and code scanning in
    the repository settings, then verify that the first scans complete.
-5. Keep unsigned builds clearly labeled until macOS signing/notarization and
+6. Keep unsigned builds clearly labeled until macOS signing/notarization and
    Windows code signing are configured.
 
 Changing visibility does not rewrite Git history. Treat every reachable commit,
