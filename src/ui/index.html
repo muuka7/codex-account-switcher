@@ -15,7 +15,7 @@
       <div class="mark" aria-hidden="true">C</div>
       <div class="wordmark">
         <strong>Codex Account Switcher</strong>
-        <span>Local only — nothing leaves this device</span>
+        <span>Encrypted account profiles stay on this device</span>
       </div>
       <div class="titlebar-actions">
         <button id="open-codex" class="btn btn-ghost" type="button">
@@ -30,6 +30,19 @@
     <div class="scroll">
       <main class="page">
         <div id="alerts" class="stack"></div>
+
+        <section id="handoff-card" class="notice notice-handoff stacked" role="status" aria-live="polite" hidden>
+          <span class="notice-icon" data-icon="rotate"></span>
+          <div class="notice-body">
+            <strong id="handoff-title">Guarded handoff</strong>
+            <p id="handoff-message"></p>
+          </div>
+          <div class="notice-actions">
+            <button id="handoff-open-codex" class="btn btn-primary" type="button" hidden>Open Codex</button>
+            <button id="handoff-cancel" class="btn" type="button" hidden>Cancel handoff</button>
+            <button id="handoff-dismiss" class="btn" type="button" hidden>Done</button>
+          </div>
+        </section>
 
         <!-- Sign-in takeover: shown only while a login flow is pending -->
         <section id="pending" class="notice notice-warn stacked" hidden>
@@ -63,6 +76,10 @@
           <h2 id="accounts-heading">Saved accounts</h2>
           <span id="count" class="count"></span>
           <span class="spacer"></span>
+          <span id="rate-limit-status" class="count" role="status" aria-live="polite"></span>
+          <button id="refresh-rate-limits" class="btn btn-sm" type="button" aria-label="Refresh account usage" title="Refresh account usage">
+            <span data-icon="rotate"></span><span class="btn-label">Refresh usage</span>
+          </button>
         </div>
 
         <ul id="accounts" class="acct-list" aria-labelledby="accounts-heading"></ul>
@@ -82,6 +99,8 @@
         <p class="footnote">
           <span data-icon="lock" class="icon-wrap"></span>
           <span>Inactive accounts are encrypted with your OS account.</span>
+          <span class="sep">·</span>
+          <span>Usage refreshes contact Codex services.</span>
           <span class="sep">·</span>
           <button id="open-store" class="btn-link" type="button">Show local data</button>
         </p>
@@ -155,18 +174,70 @@
           </div>
         </div>
 
+        <div class="section-head"><h2>Guarded handoff</h2><span class="count">idle only</span></div>
+        <div class="card handoff-settings">
+          <div class="setting inline">
+            <div class="setting-copy">
+              <strong>Switch when the 5-hour limit is confirmed</strong>
+              <p>Keeps the switcher in the tray, queues a same-group destination, then waits until Codex is closed. It never terminates a running task.</p>
+            </div>
+            <div class="setting-control">
+              <label class="toggle">
+                <input id="handoff-enabled" type="checkbox" />
+                <span class="track"></span>
+                <span class="sr-only">Enable guarded handoff</span>
+              </label>
+            </div>
+          </div>
+          <div class="handoff-contract" role="note">
+            <span class="contract-node">Confirm</span><span class="contract-line"></span>
+            <span class="contract-node">Wait for close</span><span class="contract-line"></span>
+            <span class="contract-node">Verify</span><span class="contract-line"></span>
+            <span class="contract-node">You continue</span>
+          </div>
+          <div class="setting column">
+            <div class="setting-copy">
+              <strong>Continuity groups</strong>
+              <p>Only enabled accounts with exactly matching group names can hand work to each other.</p>
+              <p id="handoff-readiness" class="handoff-readiness" role="status"></p>
+            </div>
+            <div id="handoff-account-rows" class="handoff-account-rows"></div>
+          </div>
+          <div class="setting handoff-thresholds">
+            <label class="compact-field" for="handoff-reserve">
+              <span>Destination reserve</span>
+              <span class="number-suffix"><input id="handoff-reserve" type="number" min="1" max="50" step="1" /><span>%</span></span>
+            </label>
+            <label class="compact-field" for="handoff-cooldown">
+              <span>Switch cooldown</span>
+              <select id="handoff-cooldown">
+                <option value="15">15 minutes</option>
+                <option value="30">30 minutes</option>
+                <option value="60">1 hour</option>
+                <option value="120">2 hours</option>
+              </select>
+            </label>
+          </div>
+          <div class="setting">
+            <div class="setting-copy">
+              <strong>Supervised continuation</strong>
+              <p>Codex reopens on the verified destination. The switcher never submits a new turn or approves a pending action.</p>
+            </div>
+          </div>
+        </div>
+
         <div class="section-head"><h2>Local activity</h2></div>
         <div class="card">
           <div class="setting inline">
             <div class="setting-copy">
-              <strong>Switcher usage tracking</strong>
+              <strong>Local activity tracking</strong>
               <p id="usage-summary">Off · counts opens and switches locally</p>
             </div>
             <div class="setting-control usage-control">
               <label class="toggle">
                 <input id="usage-tracking" type="checkbox" />
                 <span class="track"></span>
-                <span class="sr-only">Usage tracking</span>
+                <span class="sr-only">Local activity tracking</span>
               </label>
               <button id="clear-usage" class="btn btn-sm btn-danger" type="button" hidden>Clear</button>
             </div>
@@ -200,7 +271,7 @@
           </div>
         </div>
 
-        <p class="footnote"><span id="app-version">Version 0.1 — hardened build</span></p>
+        <p class="footnote"><span id="app-version">Version 0.2 — hardened build</span></p>
       </div>
     </div>
   </div>

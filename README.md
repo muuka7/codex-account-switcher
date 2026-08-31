@@ -1,17 +1,29 @@
 # Codex Account Switcher
 
-Local-only account switcher for the Codex desktop app on macOS and Windows.
+Local account switcher for the Codex desktop app on macOS and Windows.
 
 ## Goals
 
 - Keep multiple Codex account credentials saved locally without repeated logout/login.
 - Protect inactive account profiles with OS-backed encryption (macOS Keychain via Electron `safeStorage`; Windows DPAPI via Electron `safeStorage`).
 - Preserve the latest active credential before every switch so refresh-token rotation is not lost.
-- Keep the switcher itself offline and unable to inspect Codex conversations, project files, or browser cookies.
+- Keep the renderer offline and prevent the switcher from inspecting Codex conversations, project files, or browser cookies. Usage refreshes contact Codex services through the bundled Codex runtime.
 
 ## Current scope
 
-Version 0.1 supports macOS and Windows. It expects Codex authentication at `~/.codex/auth.json` / `%USERPROFILE%\.codex\auth.json` (or `$CODEX_HOME/auth.json`). The official Codex desktop app remains responsible for authentication.
+Version 0.2 supports macOS and Windows. It expects Codex authentication at `~/.codex/auth.json` / `%USERPROFILE%\.codex\auth.json` (or `$CODEX_HOME/auth.json`). The official Codex desktop app remains responsible for authentication.
+
+Each saved account card can show the remaining five-hour and weekly capacity
+reported by Codex, together with the server-provided reset time. A refresh reads
+each account in isolation and automatically performs a confirmation read three
+minutes later.
+
+Guarded handoff is an opt-in policy for confirmed five-hour exhaustion. It
+selects the same-group eligible account with the most short-window capacity,
+then queues the switch until Codex has been closed by the user. It never closes
+Codex on its own, never submits a continuation turn, and never approves a
+pending action. After destination verification, Codex reopens for supervised
+continuation.
 
 Current Codex releases may use an OS/native credential store by default. To make `auth.json` switching authoritative, the switcher ensures the top-level `config.toml` setting contains:
 
@@ -56,6 +68,7 @@ On **Windows**, SmartScreen shows "Windows protected your PC". Choose
 ```bash
 npm install
 npm run lint
+npm test
 npm start
 ```
 
@@ -89,7 +102,8 @@ The switcher is a single screen, because the common case is opening it for a few
 seconds to pick an account.
 
 - **Account cards** — one per saved account, showing its name, email, plan,
-  credential freshness and keyboard shortcut. Each card carries its own
+  credential freshness, keyboard shortcut, and remaining five-hour and weekly
+  capacity. Each card carries its own
   **Switch** button. The **⋯** menu holds **Re-authenticate…**,
   **Change shortcut…** and **Remove account…**.
 - **The active account** is the only card that is tinted, lifted and marked with
@@ -102,10 +116,19 @@ seconds to pick an account.
   account the switcher has not saved.
 - **Settings** (the gear) — theme, per-account shortcuts, launch size,
   open-at-login, local activity counts and the safety notes.
+- **Usage refresh** — choose **Refresh usage** to check every saved account.
+  The findings and safety requirements for later automatic handoff are
+  documented in [Usage monitoring and account handoff learnings](docs/USAGE-MONITORING.md).
+  Guarded handoff can use only a recent confirmation read.
+- **Guarded handoff** — opt in from Settings, enable individual accounts, and
+  give accounts the same continuity-group name. While enabled, the switcher
+  stays in the tray and checks usage every five minutes. A queued handoff waits
+  until Codex exits, preserves the source login, switches, verifies the
+  destination identity, and reopens Codex. Continuation remains supervised.
 
 The window follows the operating system's light/dark setting;
-**Settings → Appearance** can pin it to one or the other. Nothing in the
-interface reaches the network.
+**Settings → Appearance** can pin it to one or the other. The renderer remains
+network-denied; only the main-process usage refresh starts Codex App Server.
 
 ## First use
 

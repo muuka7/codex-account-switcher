@@ -6,6 +6,23 @@ const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const { ensureFileCredentialStore } = require('./codex-config');
+const { readRateLimits } = require('./codex-app-server');
+const { publishState } = require('./state-events');
+const {
+  chooseHandoff,
+  normalizeHandoffJournal,
+  normalizeHandoffSettings,
+} = require('./handoff-policy');
+const {
+  normalizeError,
+  normalizeRateLimitCache,
+  publicRateLimitState,
+  snapshotFromResult,
+} = require('./rate-limits');
+
+if (!app.isPackaged && process.env.CODEX_SWITCHER_USER_DATA_DIR) {
+  app.setPath('userData', path.resolve(process.env.CODEX_SWITCHER_USER_DATA_DIR));
+}
 
 const APP_NAME = 'Codex Account Switcher';
 const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
@@ -14,6 +31,8 @@ const STORE_ROOT = path.join(app.getPath('userData'), 'vault');
 const INDEX_PATH = path.join(app.getPath('userData'), 'accounts.json');
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
 const USAGE_PATH = path.join(app.getPath('userData'), 'usage.json');
+const RATE_LIMITS_PATH = path.join(app.getPath('userData'), 'rate-limits.json');
+const HANDOFF_PATH = path.join(app.getPath('userData'), 'handoff.json');
 const BACKUP_PATH = path.join(app.getPath('userData'), 'last-auth-backup.secure');
 const WINDOWS_CODEX_AUMID = 'OpenAI.Codex_2p2nqsd0c76g0!App';
 const isMac = process.platform === 'darwin';
@@ -34,6 +53,19 @@ let resizeSaveTimer = null;
 
 const MIN_WINDOW_SIZE = Object.freeze({ width: 360, height: 560 });
 const MAX_WINDOW_SIZE = Object.freeze({ width: 2400, height: 1600 });
+const RATE_LIMIT_CONFIRM_DELAY_MS = 3 * 60 * 1000;
+const GUARDED_USAGE_POLL_MS = 5 * 60 * 1000;
+const RATE_LIMIT_TEMP_PREFIX = 'codex-switcher-rate-';
+
+let rateLimitCache = normalizeRateLimitCache({});
+let rateLimitRefreshing = false;
+let rateLimitRefreshPromise = null;
+let rateLimitConfirmationTimer = null;
+let handoffMonitorTimer = null;
+let handoffExecutionPromise = null;
+let guardedUsagePollTimer = null;
+let guardedHandoffBackgroundEnabled = false;
+let appIsQuitting = false;
 
 function assertSupportedPlatform() {
   if (!isMac && !isWindows) throw new Error('This hardened build currently supports macOS and Windows only.');
@@ -96,6 +128,7 @@ function normalizeSettings(settings) {
   normalized.launchOnLogin = Boolean(normalized.launchOnLogin);
   normalized.rememberLastWindowSize = Boolean(normalized.rememberLastWindowSize);
   normalized.usageTracking = Boolean(normalized.usageTracking);
+  normalized.guardedHandoff = normalizeHandoffSettings(normalized.guardedHandoff);
   const width = Number(normalized.lastWindowSize?.width);
   const height = Number(normalized.lastWindowSize?.height);
   normalized.lastWindowSize = Number.isFinite(width) && Number.isFinite(height)
@@ -129,6 +162,7 @@ function publicSettings(settings) {
     rememberLastWindowSize: normalized.rememberLastWindowSize,
     lastWindowSize: normalized.lastWindowSize,
     usageTracking: normalized.usageTracking,
+    guardedHandoff: normalized.guardedHandoff,
     windowPresets: WINDOW_PRESETS,
   };
 }
@@ -152,11 +186,26 @@ async function setSettings(changes = {}) {
     if (changes.launchOnLogin !== undefined) settings.launchOnLogin = Boolean(changes.launchOnLogin);
     if (changes.rememberLastWindowSize !== undefined) settings.rememberLastWindowSize = Boolean(changes.rememberLastWindowSize);
     if (changes.usageTracking !== undefined) settings.usageTracking = Boolean(changes.usageTracking);
+    if (changes.guardedHandoff !== undefined) {
+      const accountIds = (await readIndex()).accounts.map((account) => account.id);
+      settings.guardedHandoff = normalizeHandoffSettings(changes.guardedHandoff, accountIds);
+    }
     if (changes.windowPreset !== undefined) {
       const preset = WINDOW_PRESETS[settings.windowPreset];
       settings.lastWindowSize = { width: preset.width, height: preset.height };
     }
     await writeSettings(settings);
+    if (changes.guardedHandoff !== undefined) {
+      configureGuardedUsagePolling(settings.guardedHandoff.enabled);
+      const journal = await readHandoffJournal();
+      if (!settings.guardedHandoff.enabled && journal.phase === 'queued') {
+        await writeHandoffJournal({ ...journal, phase: 'cancelled', updatedAt: new Date().toISOString(), message: 'Guarded handoff was turned off.' });
+        stopHandoffMonitor();
+        await emitHandoff();
+      } else if (settings.guardedHandoff.enabled) {
+        await evaluateGuardedHandoff();
+      }
+    }
     applyLaunchOnLogin(settings.launchOnLogin);
     if (mainWindow && changes.windowPreset !== undefined) {
       const preset = WINDOW_PRESETS[settings.windowPreset];
@@ -227,6 +276,209 @@ async function getUsage() {
 async function clearUsage() {
   await fs.rm(USAGE_PATH, { force: true });
   return getUsage();
+}
+
+async function readHandoffJournal() {
+  try {
+    return normalizeHandoffJournal(JSON.parse(await fs.readFile(HANDOFF_PATH, 'utf8')));
+  } catch (error) {
+    if (error.code === 'ENOENT') return normalizeHandoffJournal({});
+    throw error;
+  }
+}
+
+async function writeHandoffJournal(journal) {
+  const normalized = normalizeHandoffJournal(journal);
+  await writeAtomic(HANDOFF_PATH, Buffer.from(`${JSON.stringify(normalized, null, 2)}\n`, 'utf8'));
+  return normalized;
+}
+
+async function publicHandoffState() {
+  const [journal, index, settings] = await Promise.all([readHandoffJournal(), readIndex(), readSettings()]);
+  const account = (id) => {
+    const match = index.accounts.find((item) => item.id === id);
+    return match ? { id: match.id, displayName: match.displayName } : null;
+  };
+  return {
+    phase: journal.phase,
+    source: account(journal.sourceId),
+    target: account(journal.targetId),
+    trigger: journal.trigger,
+    createdAt: journal.createdAt,
+    updatedAt: journal.updatedAt,
+    completedAt: journal.completedAt,
+    errorCode: journal.errorCode,
+    message: journal.message,
+    enabled: settings.guardedHandoff.enabled,
+    continuationMode: 'reopen_only',
+    waitsForCodexToClose: journal.phase === 'queued',
+  };
+}
+
+async function emitHandoff() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  mainWindow.webContents.send('handoff:updated', await publicHandoffState());
+}
+
+async function readRateLimitCache() {
+  try {
+    return normalizeRateLimitCache(JSON.parse(await fs.readFile(RATE_LIMITS_PATH, 'utf8')));
+  } catch (error) {
+    if (error.code === 'ENOENT') return normalizeRateLimitCache({});
+    throw error;
+  }
+}
+
+async function writeRateLimitCache(cache) {
+  rateLimitCache = normalizeRateLimitCache(cache);
+  await writeAtomic(RATE_LIMITS_PATH, Buffer.from(`${JSON.stringify(rateLimitCache, null, 2)}\n`, 'utf8'));
+}
+
+async function publicRateLimits() {
+  const index = await readIndex();
+  return publicRateLimitState(rateLimitCache, {
+    refreshing: rateLimitRefreshing,
+    accountIds: index.accounts.map((account) => account.id),
+  });
+}
+
+async function emitRateLimits() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('rate-limits:updated', await publicRateLimits());
+}
+
+async function cleanupRateLimitHome(tempHome) {
+  const tempRoot = path.resolve(os.tmpdir());
+  const target = path.resolve(tempHome);
+  if (path.dirname(target) !== tempRoot || !path.basename(target).startsWith(RATE_LIMIT_TEMP_PREFIX)) {
+    throw Object.assign(new Error('Refusing to clean an unexpected usage-check directory.'), { code: 'USAGE_CHECK_FAILED' });
+  }
+  let lastError = null;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      await fs.rm(target, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  throw Object.assign(new Error('The temporary usage-check directory could not be removed.'), { code: 'USAGE_CHECK_FAILED', cause: lastError });
+}
+
+async function cleanupStaleRateLimitHomes() {
+  const tempRoot = path.resolve(os.tmpdir());
+  let entries = [];
+  try { entries = await fs.readdir(tempRoot, { withFileTypes: true }); } catch { return; }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith(RATE_LIMIT_TEMP_PREFIX)) continue;
+    await cleanupRateLimitHome(path.join(tempRoot, entry.name)).catch(() => {});
+  }
+}
+
+async function probeSavedAccount(account, index) {
+  const useLiveHome = !index.pendingLogin && index.activeId === account.id && await exists(AUTH_PATH);
+  if (useLiveHome) {
+    const result = await readRateLimits({ codexHome: CODEX_HOME });
+    const refreshedAuth = await readCurrentAuth();
+    await writeAtomic(accountBlobPath(account.id), protect(refreshedAuth));
+    account.identity = { ...account.identity, ...deriveIdentity(refreshedAuth) };
+    account.lastSavedAt = new Date().toISOString();
+    return result;
+  }
+
+  let protectedAuth;
+  try {
+    protectedAuth = await fs.readFile(accountBlobPath(account.id));
+  } catch (error) {
+    if (error.code === 'ENOENT') throw Object.assign(new Error('Saved login missing.'), { code: 'ACCOUNT_CREDENTIAL_MISSING' });
+    throw error;
+  }
+  const auth = unprotect(protectedAuth);
+  JSON.parse(auth.toString('utf8'));
+
+  const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), RATE_LIMIT_TEMP_PREFIX));
+  try {
+    await fs.writeFile(path.join(tempHome, 'auth.json'), auth, { mode: 0o600 });
+    await fs.writeFile(path.join(tempHome, 'config.toml'), 'cli_auth_credentials_store = "file"\n', { mode: 0o600 });
+    const result = await readRateLimits({ codexHome: tempHome, sqliteHome: tempHome });
+    const refreshedAuth = await fs.readFile(path.join(tempHome, 'auth.json'));
+    if (!refreshedAuth.equals(auth)) {
+      const actualIdentity = deriveIdentity(refreshedAuth);
+      const hasExpectedIdentity = Boolean(account.identity?.accountId || account.identity?.email);
+      if (hasExpectedIdentity && !identityMatches(account.identity, actualIdentity)) {
+        throw Object.assign(new Error('Refreshed login identity mismatch.'), { code: 'ACCOUNT_IDENTITY_MISMATCH' });
+      }
+      await writeAtomic(accountBlobPath(account.id), protect(refreshedAuth));
+      account.identity = { ...account.identity, ...actualIdentity };
+      account.lastSavedAt = new Date().toISOString();
+    }
+    return result;
+  } finally {
+    await cleanupRateLimitHome(tempHome);
+  }
+}
+
+async function runRateLimitRefreshPass({ confirm = false } = {}) {
+  const index = await readIndex();
+  const next = normalizeRateLimitCache(rateLimitCache);
+  const validIds = new Set(index.accounts.map((account) => account.id));
+  for (const accountId of Object.keys(next.accounts)) {
+    if (!validIds.has(accountId)) delete next.accounts[accountId];
+  }
+
+  for (const account of index.accounts) {
+    const previous = next.accounts[account.id] || null;
+    try {
+      const checkedAt = new Date().toISOString();
+      const snapshot = snapshotFromResult(await probeSavedAccount(account, index), checkedAt);
+      if (confirm) snapshot.confirmedAt = checkedAt;
+      next.accounts[account.id] = snapshot;
+    } catch (error) {
+      next.accounts[account.id] = {
+        ...(previous || { checkedAt: null, confirmedAt: null, fiveHour: null, weekly: null, rateLimitReachedType: null }),
+        status: 'error',
+        error: normalizeError(error),
+      };
+    }
+  }
+
+  const completedAt = new Date().toISOString();
+  next.checkedAt = completedAt;
+  if (confirm) {
+    next.confirmedAt = completedAt;
+    next.confirmationPendingUntil = null;
+  } else if (index.accounts.length) {
+    next.confirmationPendingUntil = new Date(Date.now() + RATE_LIMIT_CONFIRM_DELAY_MS).toISOString();
+  }
+  await writeIndex(index);
+  await writeRateLimitCache(next);
+  await emitRateLimits();
+  if (confirm) await evaluateGuardedHandoff();
+
+  if (!confirm && index.accounts.length) {
+    if (rateLimitConfirmationTimer) clearTimeout(rateLimitConfirmationTimer);
+    rateLimitConfirmationTimer = setTimeout(() => {
+      rateLimitConfirmationTimer = null;
+      refreshRateLimits({ confirm: true }).catch(() => {});
+    }, RATE_LIMIT_CONFIRM_DELAY_MS);
+  }
+}
+
+async function refreshRateLimits({ confirm = false } = {}) {
+  if (rateLimitRefreshPromise) return rateLimitRefreshPromise.then(() => publicRateLimits());
+  rateLimitRefreshing = true;
+  await emitRateLimits();
+  const task = queueOperation(() => runRateLimitRefreshPass({ confirm }));
+  rateLimitRefreshPromise = task;
+  try {
+    await task;
+  } finally {
+    rateLimitRefreshing = false;
+    rateLimitRefreshPromise = null;
+    await emitRateLimits();
+  }
+  return publicRateLimits();
 }
 
 function scheduleWindowSizeSave() {
@@ -496,6 +748,45 @@ exit 1
   assertSupportedPlatform();
 }
 
+async function isCodexRunning() {
+  if (isMac) {
+    try {
+      await run('/usr/bin/pgrep', ['-x', 'Codex']);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  if (isWindows) {
+    const script = `
+$pkg = Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue | Select-Object -First 1
+$install = if ($pkg) { $pkg.InstallLocation } else { $null }
+$items = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+  Where-Object { $_.Name -ieq 'ChatGPT.exe' -or $_.Name -ieq 'codex.exe' })
+if ($install) {
+  $items = @($items | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($install, [System.StringComparison]::OrdinalIgnoreCase) })
+} else {
+  $items = @($items | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like '*\\WindowsApps\\OpenAI.Codex_*' })
+}
+if ($items.Count -gt 0) { [Console]::Out.Write('1') } else { [Console]::Out.Write('0') }
+`;
+    return (await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { capture: true })) === '1';
+  }
+
+  assertSupportedPlatform();
+  return true;
+}
+
+async function waitForCodexRunning(timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isCodexRunning()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
 async function prepareLogin(mode, accountId = null) {
   return queueOperation(async () => {
     assertSupportedPlatform();
@@ -622,8 +913,7 @@ async function cancelPendingLogin() {
   });
 }
 
-async function switchAccount(targetId) {
-  return queueOperation(async () => {
+async function switchAccountNow(targetId, { closeRunningCodex = true } = {}) {
     assertSupportedPlatform();
     await ensureDirs();
     await ensureCodexCompatibility();
@@ -636,11 +926,23 @@ async function switchAccount(targetId) {
     const targetCipher = await fs.readFile(accountBlobPath(targetId));
     const targetAuth = unprotect(targetCipher);
     JSON.parse(targetAuth.toString('utf8'));
+    if (!closeRunningCodex && !identityMatches(target.identity, deriveIdentity(targetAuth))) {
+      throw Object.assign(new Error('The saved destination credential does not match its account identity.'), { code: 'HANDOFF_VERIFY_FAILED' });
+    }
 
-    await closeCodex();
+    if (closeRunningCodex) {
+      await closeCodex();
+    } else if (await isCodexRunning()) {
+      throw Object.assign(new Error('Codex is running; guarded handoff will not close it.'), { code: 'HANDOFF_CODEX_RUNNING' });
+    }
 
     let original = null;
     try {
+      // Recheck immediately before touching credentials. The guarded path is
+      // intentionally incapable of closing Codex if it reappears.
+      if (!closeRunningCodex && await isCodexRunning()) {
+        throw Object.assign(new Error('Codex restarted before the handoff could begin.'), { code: 'HANDOFF_CODEX_RUNNING' });
+      }
       if (await exists(AUTH_PATH)) {
         original = await readCurrentAuth();
         await writeAtomic(BACKUP_PATH, protect(original));
@@ -671,9 +973,195 @@ async function switchAccount(targetId) {
       warning = `Account switched successfully, but Codex could not be reopened automatically: ${error.message}`;
     }
 
+    const state = publicState(index, warning);
+    publishState(mainWindow, state);
     updateTrayMenu().catch(() => {});
-    return publicState(index, warning);
+    return state;
+}
+
+async function switchAccount(targetId) {
+  return queueOperation(() => switchAccountNow(targetId));
+}
+
+function stopHandoffMonitor() {
+  if (handoffMonitorTimer) clearInterval(handoffMonitorTimer);
+  handoffMonitorTimer = null;
+}
+
+function configureGuardedUsagePolling(enabled) {
+  if (guardedUsagePollTimer) clearInterval(guardedUsagePollTimer);
+  guardedUsagePollTimer = null;
+  guardedHandoffBackgroundEnabled = Boolean(enabled);
+  if (!enabled) return;
+  guardedUsagePollTimer = setInterval(() => {
+    refreshRateLimits({ confirm: false }).catch(() => {});
+  }, GUARDED_USAGE_POLL_MS);
+}
+
+function startHandoffMonitor() {
+  if (handoffMonitorTimer) return;
+  handoffMonitorTimer = setInterval(() => {
+    executeQueuedHandoff().catch(() => {});
+  }, 15000);
+  setTimeout(() => executeQueuedHandoff().catch(() => {}), 1000);
+}
+
+async function queueGuardedHandoff(decision) {
+  const previous = await readHandoffJournal();
+  if (['queued', 'switching', 'verifying'].includes(previous.phase)) return previous;
+  const now = new Date().toISOString();
+  const journal = await writeHandoffJournal({
+    version: 1,
+    id: crypto.randomUUID(),
+    phase: 'queued',
+    sourceId: decision.sourceId,
+    targetId: decision.targetId,
+    trigger: decision.trigger,
+    createdAt: now,
+    updatedAt: now,
+    lastCompletedAt: previous.lastCompletedAt,
+    message: 'Waiting for Codex to close before switching.',
   });
+  await emitHandoff();
+  startHandoffMonitor();
+  return journal;
+}
+
+async function evaluateGuardedHandoff() {
+  const [index, settings, journal] = await Promise.all([readIndex(), readSettings(), readHandoffJournal()]);
+  const decision = chooseHandoff({
+    accounts: index.accounts,
+    activeId: index.activeId,
+    rateLimits: rateLimitCache.accounts,
+    settings: settings.guardedHandoff,
+    journal,
+  });
+  if (decision.status === 'ready') await queueGuardedHandoff(decision);
+  return decision;
+}
+
+async function failGuardedHandoff(journal, code, message) {
+  const failed = await writeHandoffJournal({
+    ...journal,
+    phase: 'failed',
+    updatedAt: new Date().toISOString(),
+    errorCode: code,
+    message,
+  });
+  stopHandoffMonitor();
+  await emitHandoff();
+  return failed;
+}
+
+async function executeQueuedHandoff() {
+  if (handoffExecutionPromise) return handoffExecutionPromise;
+  handoffExecutionPromise = queueOperation(async () => {
+    let journal = await readHandoffJournal();
+    if (journal.phase !== 'queued') {
+      stopHandoffMonitor();
+      return publicHandoffState();
+    }
+    const [index, settings] = await Promise.all([readIndex(), readSettings()]);
+    if (!settings.guardedHandoff.enabled) {
+      journal = await writeHandoffJournal({ ...journal, phase: 'cancelled', updatedAt: new Date().toISOString(), message: 'Guarded handoff was turned off.' });
+      stopHandoffMonitor();
+      await emitHandoff();
+      return publicHandoffState();
+    }
+    const decision = chooseHandoff({
+      accounts: index.accounts,
+      activeId: index.activeId,
+      rateLimits: rateLimitCache.accounts,
+      settings: settings.guardedHandoff,
+      journal: { ...journal, phase: 'idle' },
+    });
+    if (decision.status !== 'ready' || decision.sourceId !== journal.sourceId || decision.targetId !== journal.targetId) {
+      return failGuardedHandoff(journal, 'HANDOFF_REVALIDATION_FAILED', 'Usage or account eligibility changed before the switch. Refresh usage to try again.');
+    }
+    if (await isCodexRunning()) return publicHandoffState();
+
+    journal = await writeHandoffJournal({ ...journal, phase: 'switching', updatedAt: new Date().toISOString(), message: 'Switching accounts.' });
+    await emitHandoff();
+    try {
+      const switchedState = await switchAccountNow(journal.targetId, { closeRunningCodex: false });
+      if (switchedState.warning || !(await waitForCodexRunning())) {
+        throw Object.assign(new Error('Codex did not reopen on the destination account.'), { code: 'HANDOFF_REOPEN_FAILED' });
+      }
+      journal = await writeHandoffJournal({ ...journal, phase: 'verifying', updatedAt: new Date().toISOString(), message: 'Verifying the reopened account.' });
+      await emitHandoff();
+
+      const nextIndex = await readIndex();
+      const target = nextIndex.accounts.find((account) => account.id === journal.targetId);
+      if (!target || nextIndex.activeId !== target.id) throw Object.assign(new Error('The destination account did not become active.'), { code: 'HANDOFF_VERIFY_FAILED' });
+      const liveIdentity = deriveIdentity(await readCurrentAuth());
+      if (!identityMatches(target.identity, liveIdentity)) throw Object.assign(new Error('The reopened account identity did not match the destination.'), { code: 'HANDOFF_VERIFY_FAILED' });
+
+      const completedAt = new Date().toISOString();
+      journal = await writeHandoffJournal({
+        ...journal,
+        phase: 'continuationReady',
+        updatedAt: completedAt,
+        completedAt,
+        lastCompletedAt: completedAt,
+        errorCode: null,
+        message: 'Codex reopened on the destination account. Continue the previous task when ready; no new turn was submitted.',
+      });
+      stopHandoffMonitor();
+      await emitHandoff();
+      return publicHandoffState();
+    } catch (error) {
+      const current = await readIndex().catch(() => null);
+      if (current?.activeId === journal.targetId && current.accounts.some((account) => account.id === journal.sourceId)) {
+        // Recovery follows the same no-close contract. If Codex is already
+        // running, leave it untouched and surface the failed journal instead.
+        await switchAccountNow(journal.sourceId, { closeRunningCodex: false }).catch(() => {});
+      }
+      const code = ['HANDOFF_VERIFY_FAILED', 'HANDOFF_REOPEN_FAILED'].includes(error?.code) ? error.code : 'HANDOFF_SWITCH_FAILED';
+      return failGuardedHandoff(journal, code, 'The guarded handoff failed. The source account was restored when possible.');
+    }
+  });
+  try {
+    return await handoffExecutionPromise;
+  } finally {
+    handoffExecutionPromise = null;
+  }
+}
+
+async function cancelGuardedHandoff() {
+  return queueOperation(async () => {
+    const journal = await readHandoffJournal();
+    if (journal.phase !== 'queued') return publicHandoffState();
+    await writeHandoffJournal({ ...journal, phase: 'cancelled', updatedAt: new Date().toISOString(), message: 'Queued handoff cancelled.' });
+    stopHandoffMonitor();
+    await emitHandoff();
+    return publicHandoffState();
+  });
+}
+
+async function acknowledgeGuardedHandoff() {
+  return queueOperation(async () => {
+    const journal = await readHandoffJournal();
+    if (!['continuationReady', 'failed', 'cancelled'].includes(journal.phase)) return publicHandoffState();
+    await writeHandoffJournal({ ...journal, phase: 'completed', updatedAt: new Date().toISOString(), message: null, errorCode: null });
+    await emitHandoff();
+    return publicHandoffState();
+  });
+}
+
+async function recoverGuardedHandoff() {
+  const journal = await readHandoffJournal();
+  if (journal.phase === 'queued') {
+    startHandoffMonitor();
+    return;
+  }
+  if (!['switching', 'verifying'].includes(journal.phase)) return;
+  const index = await readIndex();
+  const now = new Date().toISOString();
+  if (index.activeId === journal.targetId) {
+    await writeHandoffJournal({ ...journal, phase: 'continuationReady', updatedAt: now, completedAt: now, lastCompletedAt: now, message: 'Recovered after restart. Verify the destination account in Codex before continuing.' });
+  } else {
+    await writeHandoffJournal({ ...journal, phase: 'failed', updatedAt: now, errorCode: 'HANDOFF_RECOVERY_REQUIRED', message: 'A previous handoff stopped before verification. Review the active account before continuing.' });
+  }
 }
 
 async function removeAccount(id) {
@@ -887,6 +1375,12 @@ function createWindow(settings) {
 
   hardenNavigation(mainWindow);
   mainWindow.on('resize', scheduleWindowSizeSave);
+  mainWindow.on('close', (event) => {
+    if (!appIsQuitting && guardedHandoffBackgroundEnabled) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
   mainWindow.loadFile(path.join(__dirname, 'ui', 'index.html'));
 }
 
@@ -905,6 +1399,11 @@ function installIpc() {
   ipcMain.handle('settings:set', (_event, changes) => setSettings(changes));
   ipcMain.handle('usage:get', getUsage);
   ipcMain.handle('usage:clear', clearUsage);
+  ipcMain.handle('rate-limits:get', publicRateLimits);
+  ipcMain.handle('rate-limits:refresh', () => refreshRateLimits({ confirm: false }));
+  ipcMain.handle('handoff:get', publicHandoffState);
+  ipcMain.handle('handoff:cancel', cancelGuardedHandoff);
+  ipcMain.handle('handoff:acknowledge', acknowledgeGuardedHandoff);
   ipcMain.handle('codex:open', () => openCodex());
   ipcMain.handle('folder:open-store', () => shell.openPath(app.getPath('userData')));
 }
@@ -913,7 +1412,11 @@ app.whenReady().then(async () => {
   assertSupportedPlatform();
   await ensureDirs();
   await ensureCodexCompatibility();
+  rateLimitCache = await readRateLimitCache();
+  await cleanupStaleRateLimitHomes();
+  await recoverGuardedHandoff();
   const settings = await readSettings();
+  configureGuardedUsagePolling(settings.guardedHandoff.enabled);
   applyLaunchOnLogin(settings.launchOnLogin);
   installNetworkDeny();
   installIpc();
@@ -921,7 +1424,17 @@ app.whenReady().then(async () => {
   createTray();
   registerShortcuts(await getState());
   recordUsage('open').catch(() => {});
+  setTimeout(() => refreshRateLimits({ confirm: false }).catch(() => {}), 600);
 });
 
-app.on('will-quit', () => globalShortcut.unregisterAll());
-app.on('window-all-closed', () => app.quit());
+app.on('will-quit', () => {
+  appIsQuitting = true;
+  if (rateLimitConfirmationTimer) clearTimeout(rateLimitConfirmationTimer);
+  if (guardedUsagePollTimer) clearInterval(guardedUsagePollTimer);
+  stopHandoffMonitor();
+  globalShortcut.unregisterAll();
+});
+app.on('before-quit', () => { appIsQuitting = true; });
+app.on('window-all-closed', () => {
+  if (!guardedHandoffBackgroundEnabled) app.quit();
+});

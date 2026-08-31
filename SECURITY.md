@@ -13,11 +13,24 @@ Older release lines are not maintained unless a release note says otherwise.
 - The renderer has `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`, and `webSecurity: true`.
 - The renderer is denied all HTTP(S) and WebSocket requests.
 - External navigation and popup windows are denied.
-- The UI receives only non-secret account metadata (display name, email/plan claims when locally derivable, active status).
+- The UI receives only non-secret account metadata and sanitized rate-limit data (remaining percentage, window duration, reset time, freshness, and error category).
 - Credential files are written atomically with restrictive local file modes where supported by the platform.
 - Before switching away, the current `auth.json` is written back into its encrypted profile so rotated refresh tokens are preserved.
+- Guarded handoff never closes a running Codex process. It queues until Codex is no longer running, then revalidates confirmed capacity and account eligibility before switching.
+- Automatic destinations are restricted to accounts the user explicitly enables with the same continuity-group label. The destination identity is checked after reopening; verification failure attempts to restore the source account.
+- The handoff journal contains account identifiers, phase, timestamps, trigger, and sanitized errors only. It does not contain prompts, thread history, command output, or credentials.
 - An OS-encrypted rollback backup is made before replacing the active credential.
 - Electron runtime features not required by the app are disabled using Electron Fuses during packaging.
+
+## Usage checks
+
+Usage refreshes contact Codex services through the bundled Codex App Server.
+The renderer remains network-denied. An inactive account is decrypted only in
+the main process, copied into a unique temporary Codex home for the request, and
+removed after the App Server exits. If Codex rotates that account's credentials,
+the refreshed snapshot is accepted only after its account identity matches and
+is then encrypted back into the vault. Tokens and raw App Server output are not
+sent to the renderer or written to the usage cache.
 
 ## Explicitly out of scope
 
@@ -27,10 +40,10 @@ This application does not:
 - request or store an OpenAI password;
 - request or store TOTP/2FA seeds;
 - inspect browser cookies;
-- call OpenAI APIs itself;
 - read Codex conversation/session history;
 - parse prompts, project files, or Codex logs;
-- provide analytics, quota estimation, telemetry, crash reporting, or automatic updates.
+- provide analytics, telemetry, crash reporting, automatic turn submission,
+  automatic approvals, guaranteed task restoration, or automatic updates.
 
 ## Threat boundary
 

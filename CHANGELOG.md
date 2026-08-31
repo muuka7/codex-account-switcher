@@ -4,6 +4,22 @@ Notable changes to Codex Account Switcher. Dates are ISO-8601.
 
 ## Unreleased
 
+## 0.2.0 — 2026-08-31
+
+- Added opt-in guarded handoff for confirmed five-hour exhaustion: explicit
+  continuity groups, destination reserve, cooldown, idle-only queued execution,
+  transaction journaling, identity verification, rollback, tray monitoring,
+  and supervised continuation without automatic turn submission.
+- Fixed global-shortcut and tray switches so an open switcher window updates its
+  active-account indicator as soon as the completed switch is published.
+- Added per-account five-hour and weekly remaining-capacity rails, local reset
+  times, manual refresh, sanitized caching, and an automatic confirmation read
+  three minutes after each initial pass.
+- Added isolated inactive-account probes through the bundled Codex App Server;
+  passive checks do not replace the live desktop login or restart Codex.
+- Documented Codex App Server usage-limit fields, isolated multi-account checks,
+  refresh behavior, and the safety/continuity requirements for a future
+  automatic handoff in `docs/USAGE-MONITORING.md`.
 - Upgraded Electron and electron-builder to remove the high-severity advisories
   reported in the development dependency tree.
 - Added push/PR CI validation, public-repository security reporting guidance,

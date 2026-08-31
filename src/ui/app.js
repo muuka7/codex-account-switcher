@@ -37,6 +37,8 @@ applyTheme(readTheme());
 
 let currentState = null;
 let currentSettings = null;
+let currentRateLimits = { refreshing: false, checkedAt: null, confirmedAt: null, confirmationPendingUntil: null, accounts: {} };
+let currentHandoff = { phase: 'idle', source: null, target: null, message: null, enabled: false };
 let busyDepth = 0;
 let openMenu = null;
 let liveWatchTimer = null;
@@ -77,6 +79,82 @@ function formatRelative(value) {
 function healthText(health) {
   if (!health || health.level === 'unknown') return 'freshness unknown';
   return `${health.label.toLowerCase()} · saved ${formatRelative(health.updatedAt)}`;
+}
+
+const RESET_TIME = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const RESET_DATE_TIME = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+function formatReset(epochSeconds) {
+  if (!Number.isFinite(Number(epochSeconds))) return 'Reset time unavailable';
+  const reset = new Date(Number(epochSeconds) * 1000);
+  if (!Number.isFinite(reset.getTime())) return 'Reset time unavailable';
+  return reset.toDateString() === new Date().toDateString()
+    ? `Resets ${RESET_TIME.format(reset)}`
+    : `Resets ${RESET_DATE_TIME.format(reset)}`;
+}
+
+function percentText(value) {
+  if (!Number.isFinite(Number(value))) return '—';
+  const rounded = Math.round(Number(value) * 10) / 10;
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`;
+}
+
+function quotaRail(label, window, accountName) {
+  const node = document.createElement('div');
+  const remaining = window && Number.isFinite(Number(window.remainingPercent))
+    ? Math.min(100, Math.max(0, Number(window.remainingPercent)))
+    : null;
+  const tone = remaining === null ? 'unknown' : remaining <= 10 ? 'critical' : remaining <= 25 ? 'low' : 'healthy';
+  node.className = `quota quota-${tone}`;
+
+  const head = document.createElement('div');
+  head.className = 'quota-head';
+  const name = document.createElement('span');
+  name.className = 'quota-name';
+  name.textContent = label;
+  const value = document.createElement('strong');
+  value.textContent = remaining === null ? 'Not available' : `${percentText(remaining)} remaining`;
+  head.append(name, value);
+
+  const track = document.createElement('div');
+  track.className = 'quota-track';
+  track.setAttribute('role', 'progressbar');
+  track.setAttribute('aria-label', `${label} usage remaining for ${accountName}`);
+  track.setAttribute('aria-valuemin', '0');
+  track.setAttribute('aria-valuemax', '100');
+  if (remaining !== null) track.setAttribute('aria-valuenow', String(Math.round(remaining)));
+  const fill = document.createElement('span');
+  fill.style.width = `${remaining ?? 0}%`;
+  track.append(fill);
+
+  const reset = document.createElement('span');
+  reset.className = 'quota-reset';
+  reset.textContent = window ? formatReset(window.resetsAt) : 'Refresh to check';
+  node.append(head, track, reset);
+  return node;
+}
+
+function accountUsagePanel(account) {
+  const snapshot = currentRateLimits.accounts?.[account.id] || null;
+  const node = document.createElement('div');
+  node.className = 'acct-usage';
+  node.append(
+    quotaRail('5h', snapshot?.fiveHour, account.displayName),
+    quotaRail('Week', snapshot?.weekly, account.displayName),
+  );
+
+  if (snapshot?.status === 'error') {
+    const note = document.createElement('span');
+    note.className = 'quota-note is-error';
+    note.textContent = snapshot.error?.message || 'Usage could not be refreshed.';
+    node.append(note);
+  } else if (snapshot?.status === 'refreshing') {
+    const note = document.createElement('span');
+    note.className = 'quota-note';
+    note.textContent = 'Checking this account…';
+    node.append(note);
+  }
+  return node;
 }
 
 /* ---------- 2. alerts + busy -------------------------------------------- */
@@ -296,6 +374,14 @@ function accountCard(account, position, state) {
     chip.textContent = 'Signing in';
     nameRow.append(chip);
   }
+  const handoffAccount = currentSettings?.guardedHandoff?.accounts?.[account.id];
+  if (currentSettings?.guardedHandoff?.enabled && handoffAccount?.enabled && handoffAccount.group) {
+    const group = document.createElement('span');
+    group.className = 'chip';
+    group.textContent = handoffAccount.group;
+    group.title = 'Guarded handoff continuity group';
+    nameRow.append(group);
+  }
 
   const meta = document.createElement('span');
   meta.className = 'acct-meta';
@@ -355,7 +441,7 @@ function accountCard(account, position, state) {
   anchor.append(more);
   actions.append(anchor);
 
-  item.append(avatarWrap, copy, shortcut, actions);
+  item.append(avatarWrap, copy, shortcut, actions, accountUsagePanel(account));
   return item;
 }
 
@@ -365,6 +451,76 @@ function renderAccounts(state) {
   el('count').textContent = state.accounts.length ? `${state.accounts.length} saved` : '';
   el('empty').hidden = state.accounts.length > 0;
   accountsEl.hidden = state.accounts.length === 0;
+}
+
+function renderRateLimitStatus() {
+  const status = el('rate-limit-status');
+  const refresh = el('refresh-rate-limits');
+  const hasAccounts = Boolean(currentState?.accounts?.length);
+  refresh.disabled = !hasAccounts || Boolean(currentRateLimits.refreshing);
+
+  if (!hasAccounts) {
+    status.textContent = '';
+  } else if (currentRateLimits.refreshing) {
+    status.textContent = 'Checking limits…';
+  } else if (currentRateLimits.confirmationPendingUntil) {
+    status.textContent = `Confirming ${formatRelative(currentRateLimits.confirmationPendingUntil)}`;
+  } else if (currentRateLimits.confirmedAt) {
+    status.textContent = `Confirmed ${formatRelative(currentRateLimits.confirmedAt)}`;
+  } else if (currentRateLimits.checkedAt) {
+    status.textContent = `Updated ${formatRelative(currentRateLimits.checkedAt)}`;
+  } else {
+    status.textContent = 'Not checked';
+  }
+}
+
+function applyRateLimits(state) {
+  currentRateLimits = state && typeof state === 'object'
+    ? state
+    : { refreshing: false, checkedAt: null, confirmedAt: null, confirmationPendingUntil: null, accounts: {} };
+  if (currentState) renderAccounts(currentState);
+  renderRateLimitStatus();
+}
+
+function applyHandoff(state) {
+  currentHandoff = state && typeof state === 'object'
+    ? state
+    : { phase: 'idle', source: null, target: null, message: null, enabled: false };
+  const card = el('handoff-card');
+  const cancel = el('handoff-cancel');
+  const dismiss = el('handoff-dismiss');
+  const open = el('handoff-open-codex');
+  cancel.hidden = true;
+  dismiss.hidden = true;
+  open.hidden = true;
+
+  if (['idle', 'completed', 'cancelled'].includes(currentHandoff.phase)) {
+    card.hidden = true;
+    return;
+  }
+
+  const route = [currentHandoff.source?.displayName, currentHandoff.target?.displayName].filter(Boolean).join(' → ');
+  card.hidden = false;
+  if (currentHandoff.phase === 'queued') {
+    el('handoff-title').textContent = route ? `Handoff queued · ${route}` : 'Guarded handoff queued';
+    el('handoff-message').textContent = currentHandoff.message || 'Close Codex when the current task is safe. The switch happens only after it exits.';
+    cancel.hidden = false;
+  } else if (currentHandoff.phase === 'switching') {
+    el('handoff-title').textContent = route ? `Switching · ${route}` : 'Switching accounts';
+    el('handoff-message').textContent = 'The source credential is preserved before the destination is activated.';
+  } else if (currentHandoff.phase === 'verifying') {
+    el('handoff-title').textContent = 'Verifying destination account';
+    el('handoff-message').textContent = currentHandoff.message || 'Checking that Codex reopened on the intended account.';
+  } else if (currentHandoff.phase === 'continuationReady') {
+    el('handoff-title').textContent = route ? `Ready to continue · ${route}` : 'Ready to continue';
+    el('handoff-message').textContent = currentHandoff.message || 'Codex reopened. Continue the previous task when ready; no new turn was submitted.';
+    open.hidden = false;
+    dismiss.hidden = false;
+  } else {
+    el('handoff-title').textContent = 'Guarded handoff needs attention';
+    el('handoff-message').textContent = currentHandoff.message || 'Review the active account before continuing.';
+    dismiss.hidden = false;
+  }
 }
 
 function renderPending(state) {
@@ -454,6 +610,8 @@ function applyState(state) {
   renderPending(state);
   renderLive(state);
   renderShortcutRows(state);
+  if (currentSettings) renderHandoffSettings(currentSettings);
+  renderRateLimitStatus();
   if (state.warning) showAlert('warn', state.warning);
   else if (state.configCompatibility?.changed) {
     showAlert('warn', 'Codex was switched to file-backed credentials so switching works. The previous config.toml was backed up.', { timeout: 8000 });
@@ -670,6 +828,68 @@ function renderSettings(settings) {
       ? `Reopens at ${size.width} × ${size.height}.`
       : 'Resize the window and it will reopen at that size.';
   }
+  renderHandoffSettings(settings);
+  if (currentState) renderAccounts(currentState);
+}
+
+function handoffPolicyWithAccount(accountId, changes) {
+  const current = currentSettings?.guardedHandoff || {};
+  return {
+    ...current,
+    accounts: {
+      ...(current.accounts || {}),
+      [accountId]: { ...(current.accounts?.[accountId] || {}), ...changes },
+    },
+  };
+}
+
+function renderHandoffSettings(settings) {
+  const policy = settings.guardedHandoff || { enabled: false, reservePercent: 10, cooldownMinutes: 30, accounts: {} };
+  el('handoff-enabled').checked = Boolean(policy.enabled);
+  el('handoff-reserve').value = String(policy.reservePercent || 10);
+  el('handoff-cooldown').value = String(policy.cooldownMinutes || 30);
+  const rows = el('handoff-account-rows');
+  rows.replaceChildren();
+  const groupCounts = new Map();
+  for (const account of currentState?.accounts || []) {
+    const accountPolicy = policy.accounts?.[account.id] || { enabled: false, group: '' };
+    if (accountPolicy.enabled && accountPolicy.group) {
+      groupCounts.set(accountPolicy.group, (groupCounts.get(accountPolicy.group) || 0) + 1);
+    }
+    const row = document.createElement('div');
+    row.className = `handoff-account-row${accountPolicy.enabled ? '' : ' is-disabled'}`;
+
+    const eligible = document.createElement('input');
+    eligible.type = 'checkbox';
+    eligible.checked = Boolean(accountPolicy.enabled);
+    eligible.setAttribute('aria-label', `Allow guarded handoff for ${account.displayName}`);
+
+    const copy = document.createElement('span');
+    copy.className = 'handoff-account-name';
+    const name = document.createElement('strong');
+    name.textContent = account.displayName;
+    const meta = document.createElement('small');
+    meta.textContent = account.email || 'Saved locally';
+    copy.append(name, meta);
+
+    const group = document.createElement('input');
+    group.type = 'text';
+    group.maxLength = 60;
+    group.placeholder = 'Continuity group';
+    group.value = accountPolicy.group || '';
+    group.disabled = !accountPolicy.enabled;
+    group.setAttribute('aria-label', `Continuity group for ${account.displayName}`);
+
+    eligible.addEventListener('change', () => updateSettings({ guardedHandoff: handoffPolicyWithAccount(account.id, { enabled: eligible.checked }) }));
+    group.addEventListener('change', () => updateSettings({ guardedHandoff: handoffPolicyWithAccount(account.id, { group: group.value.trim() }) }));
+    row.append(eligible, copy, group);
+    rows.append(row);
+  }
+  const readyGroups = [...groupCounts.entries()].filter(([, count]) => count >= 2).map(([group]) => group);
+  const readiness = el('handoff-readiness');
+  if (!policy.enabled) readiness.textContent = 'Off. Configure a matching group on at least two accounts before enabling.';
+  else if (!readyGroups.length) readiness.textContent = 'Not ready: enable at least two accounts with the same non-empty group name.';
+  else readiness.textContent = `Ready groups: ${readyGroups.join(', ')}.`;
 }
 
 function renderUsage(usage) {
@@ -710,11 +930,39 @@ async function loadUsage() {
   try { renderUsage(await api.getUsage()); } catch { /* usage is optional */ }
 }
 
+async function loadRateLimits() {
+  if (typeof api.getRateLimits !== 'function') return;
+  try { applyRateLimits(await api.getRateLimits()); } catch { /* usage limits are optional */ }
+}
+
+async function loadHandoff() {
+  if (typeof api.getHandoff !== 'function') return;
+  try { applyHandoff(await api.getHandoff()); } catch { /* handoff is optional */ }
+}
+
+async function refreshRateLimits() {
+  if (typeof api.refreshRateLimits !== 'function') return;
+  const button = el('refresh-rate-limits');
+  button.disabled = true;
+  try {
+    applyRateLimits(await api.refreshRateLimits());
+  } catch (error) {
+    reportError(error);
+  } finally {
+    renderRateLimitStatus();
+  }
+}
+
 /* ---------- 7. wiring --------------------------------------------------- */
 
 el('open-codex').addEventListener('click', () => run(null, async () => { await api.openCodex(); }));
 el('open-store').addEventListener('click', () => api.openStoreFolder().catch(reportError));
 el('settings-open-store').addEventListener('click', () => api.openStoreFolder().catch(reportError));
+el('refresh-rate-limits').addEventListener('click', refreshRateLimits);
+
+if (typeof api.onStateUpdated === 'function') api.onStateUpdated(applyState);
+if (typeof api.onRateLimitsUpdated === 'function') api.onRateLimitsUpdated(applyRateLimits);
+if (typeof api.onHandoffUpdated === 'function') api.onHandoffUpdated(applyHandoff);
 
 el('open-settings').addEventListener('click', () => {
   renderTheme();
@@ -747,6 +995,33 @@ el('usage-tracking')?.addEventListener('change', async (event) => {
   await updateSettings({ usageTracking: event.target.checked });
   loadUsage();
 });
+el('handoff-enabled')?.addEventListener('change', async (event) => {
+  if (event.target.checked) {
+    const ok = await askConfirm({
+      title: 'Enable guarded handoff?',
+      message: 'The switcher will stay in the tray and monitor confirmed usage. It will never close Codex; after you close Codex at a safe point, a queued same-group handoff may switch accounts and reopen it.',
+      confirmLabel: 'Enable guarded handoff',
+    });
+    if (!ok) {
+      event.target.checked = false;
+      return;
+    }
+  }
+  updateSettings({ guardedHandoff: { ...(currentSettings?.guardedHandoff || {}), enabled: event.target.checked } });
+});
+el('handoff-reserve')?.addEventListener('change', (event) => {
+  updateSettings({ guardedHandoff: { ...(currentSettings?.guardedHandoff || {}), reservePercent: Number(event.target.value) } });
+});
+el('handoff-cooldown')?.addEventListener('change', (event) => {
+  updateSettings({ guardedHandoff: { ...(currentSettings?.guardedHandoff || {}), cooldownMinutes: Number(event.target.value) } });
+});
+el('handoff-cancel')?.addEventListener('click', async () => {
+  try { applyHandoff(await api.cancelHandoff()); } catch (error) { reportError(error); }
+});
+el('handoff-dismiss')?.addEventListener('click', async () => {
+  try { applyHandoff(await api.acknowledgeHandoff()); } catch (error) { reportError(error); }
+});
+el('handoff-open-codex')?.addEventListener('click', () => api.openCodex().catch(reportError));
 el('clear-usage')?.addEventListener('click', async () => {
   const ok = await askConfirm({
     title: 'Clear local activity counts?',
@@ -790,6 +1065,8 @@ el('shortcut-save').addEventListener('click', () => {
   setBusy(true);
   try {
     applyState(await api.getState());
+    await loadRateLimits();
+    await loadHandoff();
     await loadSettings();
     await loadUsage();
     renderTheme();

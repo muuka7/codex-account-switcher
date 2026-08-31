@@ -18,5 +18,7 @@ last-auth-backup.keychain
 last-auth-backup.secure
 settings.json
 usage.json
+rate-limits.json
+handoff.json
 .codex/
 .codex-profiles/
