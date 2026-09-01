@@ -4,6 +4,12 @@ Notable changes to Codex Account Switcher. Dates are ISO-8601.
 
 ## Unreleased
 
+## 0.2.1 — 2026-09-01
+
+- Reissued the 0.2 feature release so Windows, Intel macOS, Apple Silicon
+  macOS, and their complete checksum manifest can be published together as one
+  immutable GitHub Release. Application behavior is unchanged from 0.2.0.
+
 ## 0.2.0 — 2026-08-31
 
 - Added opt-in guarded handoff for confirmed five-hour exhaustion: explicit

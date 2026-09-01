@@ -11,7 +11,7 @@ Local account switcher for the Codex desktop app on macOS and Windows.
 
 ## Current scope
 
-Version 0.2 supports macOS and Windows. It expects Codex authentication at `~/.codex/auth.json` / `%USERPROFILE%\.codex\auth.json` (or `$CODEX_HOME/auth.json`). The official Codex desktop app remains responsible for authentication.
+Version 0.2.1 supports macOS and Windows. It expects Codex authentication at `~/.codex/auth.json` / `%USERPROFILE%\.codex\auth.json` (or `$CODEX_HOME/auth.json`). The official Codex desktop app remains responsible for authentication.
 
 Each saved account card can show the remaining five-hour and weekly capacity
 reported by Codex, together with the server-provided reset time. A refresh reads

@@ -1,6 +1,6 @@
 {
   "name": "codex-account-switcher",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Codex desktop account switcher with OS-backed credential protection and usage visibility.",
   "main": "src/main.js",
