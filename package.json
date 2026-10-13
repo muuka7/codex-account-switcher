@@ -75,6 +75,6 @@
     }
   },
   "dependencies": {
-    "@openai/codex": "0.136.0"
+    "@openai/codex": "0.162.1"
   }
 }
