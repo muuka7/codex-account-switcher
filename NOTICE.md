@@ -10,5 +10,5 @@ No claim is made that this repository is an official OpenAI project. Codex, Chat
 The upstream MIT license text for CodexAuth is retained in `LICENSE`.
 
 The packaged usage-refresh feature includes `@openai/codex`, distributed under
-the Apache License 2.0. This dependency provides the Codex App Server runtime;
+the Apache License 2.0 (included in `licenses/Apache-2.0.txt`). This dependency provides the Codex App Server runtime;
 its inclusion does not make this switcher an official OpenAI application.

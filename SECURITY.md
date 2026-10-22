@@ -22,7 +22,8 @@ Older release lines are not maintained unless a release note says otherwise.
 - External navigation and popup windows are denied.
 - The UI receives only non-secret account metadata and sanitized rate-limit data (remaining percentage, window duration, reset time, freshness, and error category).
 - Credential files are written atomically with restrictive local file modes where supported by the platform.
-- Before switching away, the current `auth.json` is written back into its encrypted profile so rotated refresh tokens are preserved.
+- Before saving a live credential, both its account/workspace and email must match the saved profile. A different or unidentified login is rejected without replacing the snapshot. This also applies before and after active-account usage checks.
+- Before switching away, the matching current `auth.json` is written back into its encrypted profile so rotated refresh tokens are preserved.
 - Guarded handoff never closes a running Codex process. It queues until Codex is no longer running, then revalidates confirmed capacity and account eligibility before switching.
 - Automatic destinations are restricted to accounts the user explicitly enables with the same continuity-group label. The destination identity is checked after reopening; verification failure attempts to restore the source account.
 - The handoff journal contains account identifiers, phase, timestamps, trigger, and sanitized errors only. It does not contain prompts, thread history, command output, or credentials.
@@ -39,6 +40,27 @@ the refreshed snapshot is accepted only after its account identity matches and
 is then encrypted back into the vault. Tokens and raw App Server output are not
 sent to the renderer or written to the usage cache.
 
+## Update trust boundary
+
+Packaged macOS builds check this repository's GitHub Releases on startup and
+roughly every four hours through electron-updater in the main process. Those
+requests disclose normal connection metadata to GitHub (and its download
+infrastructure); account tokens, email addresses and conversation content are
+not included by the switcher. The renderer remains network-denied.
+
+A check never downloads or installs an update. Download requires the user's
+explicit action, and installation requires **Install and restart**; quitting
+normally does not install a downloaded update. Downgrades are disabled. Update
+payload hashes are checked by the updater; macOS's native update mechanism
+requires a compatible code signature. This trust depends on the maintainer's
+GitHub account and Apple signing identity. Checksums alone are not independent
+proof of authorship. The repository does not embed a GitHub access token.
+
+Existing v0.2.1 and earlier release assets are unsigned and cannot bootstrap a
+trusted auto-update chain. The first signed/notarized version must be installed
+manually, after verifying its published signing status. Windows updates remain
+manual and Windows installers remain unsigned.
+
 ## Explicitly out of scope
 
 This application does not:
@@ -50,7 +72,8 @@ This application does not:
 - read Codex conversation/session history;
 - parse prompts, project files, or Codex logs;
 - provide analytics, telemetry, crash reporting, automatic turn submission,
-  automatic approvals, guaranteed task restoration, or automatic updates.
+  automatic approvals, or guaranteed task restoration.
+
 
 ## Threat boundary
 

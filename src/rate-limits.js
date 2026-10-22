@@ -82,7 +82,7 @@ function normalizeError(error) {
     RATE_LIMITS_READ_FAILED: 'Codex could not read this account’s limits.',
     RATE_LIMITS_EMPTY: 'No five-hour or weekly limit data was returned.',
     ACCOUNT_CREDENTIAL_MISSING: 'The saved login is missing. Re-authenticate this account.',
-    ACCOUNT_IDENTITY_MISMATCH: 'The refreshed login did not match this saved account.',
+    ACCOUNT_IDENTITY_MISMATCH: 'The live or refreshed login does not match this saved account. Import it explicitly or re-authenticate.',
     USAGE_CHECK_FAILED: 'Usage could not be refreshed. Try again.',
   };
   return { code, message: messages[code] || messages.USAGE_CHECK_FAILED };

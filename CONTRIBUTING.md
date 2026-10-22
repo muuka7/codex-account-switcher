@@ -10,7 +10,7 @@ large speculative one.
   `feat/short-description` or `fix/short-description`.
 - Never commit `auth.json`, encrypted vault files, screenshots containing
   account data, tokens, logs with credentials, or signing identities.
-- Keep the app local-only. A new network request, telemetry path, credential
+- Keep account data on the owning machine. A new network request, telemetry path, credential
   reader, or external navigation path needs explicit maintainer and security
   review.
 - Update the README, `SECURITY.md`, `CHANGELOG.md`, or release notes when
@@ -21,8 +21,13 @@ large speculative one.
 Run these from the repository root:
 
 ```bash
+nvm use
 npm ci
 npm run lint
+npm test
+npm audit --audit-level=moderate
+npm ci --prefix server --ignore-scripts
+npm audit --prefix server --audit-level=moderate
 ```
 
 For packaging changes, also run the native build on the affected platform:
@@ -35,9 +40,7 @@ npm run pack:win
 npm run pack:mac
 ```
 
-The GitHub CI workflow runs the dependency install and lint check on pushes and
-pull requests. Packaging is platform-specific and is verified by the release
-workflow on its native runners.
+CI runs syntax checks, behavioral tests, desktop/server dependency audits, and native packaging smoke checks on macOS and Windows. Ad-hoc smoke builds are not published. Release builds additionally verify macOS signing/notarization and round-trip download checksums before publishing. The release verifier requires both architecture ZIPs and matching update metadata.
 
 ## Pull request review guidelines
 

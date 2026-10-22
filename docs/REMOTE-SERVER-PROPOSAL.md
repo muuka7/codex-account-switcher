@@ -1,4 +1,4 @@
-# Codex accounts on skillBased-muuka
+# Research: remote Codex account management
 
 Research date: 21 October 2026. Status: proposal; no server configuration or login changes deployed.
 
@@ -6,7 +6,7 @@ Research date: 21 October 2026. Status: proposal; no server configuration or log
 
 ## Recommendation
 
-Evaluate a prebuilt tool first. The initial recommendation below focused too early on custom development; existing tools already cover account storage, switching and usage dashboards. The user uses both desktop SSH projects and terminal CLI sessions.
+Evaluate a prebuilt tool first. The initial recommendation below focused too early on custom development; existing tools already cover account storage, switching and usage dashboards. The target workflow combines desktop SSH projects and terminal CLI sessions.
 
 ### Prebuilt shortlist — follow-up research
 
@@ -16,9 +16,9 @@ Evaluate a prebuilt tool first. The initial recommendation below focused too ear
 | [errhythm/ccswap](https://github.com/errhythm/ccswap) | Installable Python package, Linux terminal dashboard, saved Codex accounts, usage/reset/credit views and manual switching | Writes the selected login and asks for a Codex restart; it does not terminate Codex processes. Linux account storage is file-based. |
 | [Loongphy/codex-auth](https://github.com/Loongphy/codex-auth) | npm package, device login, account switching, remaining percentages, reset times, live terminal view and JSON output | Standard Codex clients need restarting; seamless switching uses a separate Codex fork/experimental app integration. Usage refresh directly accesses ChatGPT backend endpoints. |
 
-The closest initial feature match was **xjoker/codex-switch**. After source review, **ccswap** is the preferred candidate for an isolated monitoring evaluation because it avoids refreshing the active account's token. Neither is cleared for unattended switching on the live shared home. The xjoker stable release inspected was [v20261001.5.0](https://github.com/xjoker/codex-switch/releases/tag/v20261001.5.0), which includes Linux amd64 binaries matching the server architecture.
+The closest initial feature match was **xjoker/codex-switch**. After source review, **ccswap** is the preferred candidate for an isolated monitoring evaluation because it avoids refreshing the active account's token. Neither is cleared for unattended switching on the live shared home. The xjoker stable release inspected was [v20261001.5.0](https://github.com/xjoker/codex-switch/releases/tag/v20261001.5.0), which includes Linux amd64 binaries for Linux x86_64.
 
-No candidate has been installed or tested against this server. First validate usage visibility, credential refresh persistence and the desktop SSH reconnect behavior on Codex 0.162.0. A daemon restart is not proof that every separately launched stdio App Server or CLI session has reloaded credentials.
+No candidate has been installed or tested against a deployment. First validate usage visibility, credential refresh persistence and the desktop SSH reconnect behavior on the deployed Codex version. A daemon restart is not proof that every separately launched stdio App Server or CLI session has reloaded credentials.
 
 Useful documented commands after installation:
 
@@ -41,24 +41,19 @@ Only add custom code if a trial demonstrates a specific unmet requirement, such 
 
 A small Linux account manager could be usable from both a terminal command and this Electron switcher over SSH. One server-owned account store and switch lock would serve both interfaces.
 
-Start with usage visibility, then add explicit account switching. Keep the existing `/home/muuka/.codex` runtime home for the initial version so existing history and configuration remain in place. A switch applies to that shared runtime home; it cannot independently change just one chat.
+Start with usage visibility, then add explicit account switching. Keep the existing `/home/developer/.codex` runtime home for the initial version so existing history and configuration remain in place. A switch applies to that shared runtime home; it cannot independently change just one chat.
 
-## What was verified
+## Deployment assumptions
 
-Read-only SSH inspection found:
+The paths and host aliases in this document are illustrative. A deployment may
+have multiple desktop-owned App Servers, a daemon and CLI sessions sharing one
+Codex home. Inspect that target's versions, credential permissions and process
+ownership before choosing a switch boundary; do not assume one daemon restart
+covers every client. Never copy real credentials into documentation or fixtures.
 
-- Linux x86_64, signed in as `muuka`.
-- Codex CLI `0.162.0`, installed under Node `v22.21.1` through NVM.
-- `/home/muuka/.codex/auth.json` exists, uses ChatGPT authentication, and has mode `0600`.
-- Three running Codex App Server processes explicitly use `CODEX_HOME=/home/muuka/.codex`; one listens on the default Unix socket.
-- The usual Linux switcher locations inspected do not exist. This was not an exhaustive search for account backups or custom tools.
-- Node, Python, systemctl and tmux are available. A persistent user service was not tested.
-
-The local project already implements isolated usage probes and an encrypted account vault. Its runtime is pinned to Codex `0.136.0`, and its supported runtime targets and application lifecycle functions cover macOS/Windows. It has no SSH backend. Its current rate-limit normalization selects one bucket and recognizes exactly 300-minute and 10,080-minute windows, which is too narrow for a general server account view.
-
-A bounded `account/rateLimits/read` probe through the existing remote control socket timed out after 25 seconds. No live percentages were verified. The timeout does not establish whether the cause is proxy transport, client handshake, or server behavior. It is an implementation investigation item.
-
-No login was switched, no daemon was restarted, no credentials were copied off the server, and no model turn was submitted. The probe only requested initialization and usage data; normal Codex authentication may refresh credentials internally.
+This historical proposal informed the implemented headless helper. See
+[Linux and SSH accounts](LINUX-SERVER.md) for its actual installation, supported
+commands, process checks and recovery behavior. Desktop cards remain local.
 
 ## Supported building blocks
 
@@ -81,7 +76,7 @@ For manual checks today, `/status` in an active CLI session shows remaining limi
 | Private browser dashboard backed by the same manager | Convenient cards and refresh | Works independently of the Electron app | More work for authentication, browser security and service operation; use SSH tunneling or private networking |
 | Separate Linux users, each with their own Codex login | Central view requires access scoped to each user | Separate SSH aliases fit desktop connections; CLI uses the chosen user | Stronger separation and concurrent accounts; shared repository permissions, tool installs and chat access need planning |
 
-These are architectural alternatives, not endorsements of an audited third-party package. The existing Electron project provides useful code to extend, but cannot currently be installed headlessly on this server as a working Linux switcher.
+These are architectural alternatives, not endorsements of an audited third-party package. The implemented headless helper is documented separately; this table preserves the original design alternatives.
 
 API-key billing is a separate option if subscription switching is no longer the goal. It changes billing and entitlement behavior and does not solve the requested multi-account subscription view.
 
@@ -101,7 +96,7 @@ codex-accounts doctor
 
 The helper exposes a versioned JSON protocol over SSH stdio. The Electron main process invokes it through the existing SSH alias and returns sanitized data to the renderer. SSH host-key checking remains enabled. The terminal CLI uses the same backend and locks.
 
-The UI adds a host selector such as `This Mac` / `skillBased-muuka`. Server cards show account label, identity/workspace, plan when available, all usage buckets and windows, reset times, last successful check, stale/error status, and the selected server account. A running process whose identity has not been rechecked must not be presented as verified on the newly selected account.
+The UI adds a host selector such as `This Mac` / `dev-server`. Server cards show account label, identity/workspace, plan when available, all usage buckets and windows, reset times, last successful check, stale/error status, and the selected server account. A running process whose identity has not been rechecked must not be presented as verified on the newly selected account.
 
 ### Credential ownership
 
@@ -109,7 +104,7 @@ Keep canonical server sessions on the server. Enroll additional accounts through
 
 Use a passphrase-encrypted vault unlocked for the management session, with restrictive directory/file permissions. While locked, show cached usage and require unlocking to refresh or switch. Fully unattended polling needs a separate decision about protected key delivery; a key stored beside the encrypted files would not provide the same protection as the current macOS vault. Headless Linux must not silently fall back to Electron's unprotected credential storage.
 
-The live `auth.json` remains readable by Codex. Encryption of inactive snapshots cannot protect it from another process running as `muuka`.
+The live `auth.json` remains readable by Codex. Encryption of inactive snapshots cannot protect it from another process running as the same OS user.
 
 ### Usage collection
 
@@ -135,7 +130,7 @@ If simultaneous accounts become a requirement, choose independent runtime homes 
 
 ## Delivery sequence
 
-1. **Compatibility spike:** resolve the `0.162.0` control-socket probe timeout and validate a minimal stdio probe. Verify identity and quota reads, refresh-token persistence, and cleanup without interrupting current work.
+1. **Compatibility spike:** validate the deployed control-socket protocol and a minimal stdio probe. Verify identity and quota reads, refresh-token persistence, and cleanup without interrupting current work.
 2. **Server CLI and account store:** enrollment, encryption, locking, usage cache and manual refresh. Validate with two separately authenticated accounts. Test expiry, unknown windows, multiple buckets, SSH failures and interrupted probes.
 3. **Explicit switch:** test desktop and CLI together, including automatic restarts, rollback, interruption and reconnect. Block switching when runtime ownership is uncertain.
 4. **Desktop SSH interface:** reuse account-card presentation with host-specific state. Test that switching the server leaves the Mac account unchanged.

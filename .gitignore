@@ -22,3 +22,13 @@ rate-limits.json
 handoff.json
 .codex/
 .codex-profiles/
+*.secure
+*.vault
+*.p12
+*.pfx
+*.p8
+*.pem
+*.key
+servers.json
+operation.lock
+probes/

@@ -13,13 +13,15 @@ native runner. The resulting artifacts are collected into one GitHub Release.
 4. Commit, then tag and push:
 
    ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
+   git tag v0.2.2
+   git push origin v0.2.2
    ```
 
-Pushing a `v*` tag starts the workflow. It lints, packages both platforms,
-generates `SHA256SUMS.txt`, and publishes a release named after the tag with
-these assets:
+Pushing a `v*` tag starts the workflow. It requires a matching package version,
+syntax checks, behavioral tests and a clean dependency audit. It packages both
+platforms, verifies macOS signing/notarization, checks ZIP metadata hashes, and
+uploads a draft. It downloads that draft and verifies every checksum before
+publishing a release named after the tag with these assets:
 
 | Asset | Platform |
 | --- | --- |
@@ -33,7 +35,10 @@ these assets:
 
 To rebuild an existing tag without moving it, run the **Release** workflow
 manually from the Actions tab and give it the tag name. Delete the existing
-release first, or `gh release create` will refuse to overwrite it.
+release first, or `gh release create` will refuse to overwrite it. A failed
+upload/verification can leave a draft for investigation; do not mark it public
+manually without repeating validation. Temporary Actions installer copies are
+deleted only after verified publication, with one-day retention as a fallback.
 
 ## Public-repository gate
 
@@ -52,7 +57,11 @@ Before changing the repository visibility:
    routine changes.
 5. Enable Dependabot security updates, secret scanning, and code scanning in
    the repository settings, then verify that the first scans complete.
-6. Keep Windows signing status clearly labeled until Windows code signing is
+6. Run `bash scripts/configure-public-repo.sh` after changing visibility to
+   apply private reporting, secret protection, dependency security updates and
+   required PR/CI checks. Verify the first public CodeQL and native packaging
+   runs. The script intentionally refuses to change repository visibility.
+7. Keep Windows signing status clearly labeled until Windows code signing is
    configured. macOS signing and notarization are required for distribution.
 
 Changing visibility does not rewrite Git history. Treat every reachable commit,
@@ -94,7 +103,15 @@ npm run pack:win
 ```
 
 ```bash
-npm run pack:mac
+npm run pack:mac -- -c.mac.forceCodeSigning=false -c.mac.identity=- -c.mac.notarize=false
+npm run verify:release -- release mac
 ```
 
-Output lands in `release/`, which is gitignored.
+Output lands in `release/`, which is gitignored. The ad-hoc macOS output above
+is a packaging smoke test, not a signed/notarized release. Normal `pack:mac`
+requires signing and includes both DMG and ZIP targets. Do not attach smoke
+artifacts to a public release.
+
+Existing v0.2.1 and older installers are unsigned. Signing is a requirement for
+the next release, not a claim about those old downloads. See
+[Public readiness](docs/PUBLIC-READINESS.md).

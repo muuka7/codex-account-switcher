@@ -4,6 +4,23 @@ Notable changes to Codex Account Switcher. Dates are ISO-8601.
 
 ## Unreleased
 
+- Prepared the 0.2.2 public candidate: reject mismatched or incomplete desktop
+  identities before replacing saved credentials, and prevent concurrent desktop
+  instances from writing the same vault.
+- Updated Electron to 44.9.3 and refreshed vulnerable transitive build packages.
+- Bundle the pinned Codex runtime for each target architecture independently
+  of the build host, verifying downloaded packages against lockfile integrity.
+- Added account-identity and release-integrity regression coverage, required
+  tests/audits, and native packaging smoke checks in CI.
+- Required both macOS ZIP payloads, validated metadata hashes and signed release
+  output, and verified uploaded draft assets before publication.
+- Reduced temporary Actions retention to one day and remove copies after
+  verified publication to avoid retaining duplicate installers.
+- Generalized deployment examples, limited packaged documentation, documented
+  update consent/trust, and added a public-only GitHub protection setup script.
+- Added the headless Linux helper, encrypted vault, SSH discovery, supervised
+  switching/recovery and installation instructions.
+
 - Added macOS automatic update checks and a Settings flow to download and
   install signed releases.
 - Added macOS ZIP/update metadata artifacts, GitHub update-provider

@@ -4,7 +4,7 @@ Reviewed: 21 October 2026. Scope: targeted source review, not a full security au
 
 ## Decision
 
-Do not deploy `xjoker/codex-switch` against the live shared `/home/muuka/.codex` with its default behavior. The previous suggestion to disable daemon restarting was incomplete: it prevents an interruption but does not synchronize the account held by running Codex processes or prevent competing credential writes.
+Do not deploy `xjoker/codex-switch` against the live shared `/home/developer/.codex` with its default behavior. The previous suggestion to disable daemon restarting was incomplete: it prevents an interruption but does not synchronize the account held by running Codex processes or prevent competing credential writes.
 
 Prefer an isolated, usage-only evaluation of `ccswap` first because its reviewed implementation avoids refreshing the active account's token. This is a narrow safety advantage, not a claim that the entire application is safer or audited. Switching under either tool should initially require all clients using the affected home to be stopped and automatic reconnection controlled.
 
@@ -24,7 +24,7 @@ The release metadata was inspected, but downloaded binaries and their attestatio
 
 `cmd_use` replaces the live auth after tool-owned locking, without requiring running Codex clients to exit. The command then attempts a managed-daemon restart. Disabling that restart leaves the existing daemon's account unchanged; enabling it interrupts attached work. Independently launched stdio App Servers are not covered by this daemon-restart path.
 
-The earlier server inspection found three App Servers using the same home. A mixed runtime/file identity is therefore a concrete integration concern: different sessions may retain different logins, and an older process may later persist credentials. The tool's private lock coordinates its own clients; it does not establish that native Codex processes participate in the same transaction.
+A shared home can be used by multiple App Servers. A mixed runtime/file identity is therefore an integration concern: different sessions may retain different logins, and an older process may later persist credentials. The tool's private lock coordinates its own clients; it does not establish that native Codex processes participate in the same transaction.
 
 Restart failure is reported as a warning after the auth has changed. The explicit-alias JSON command can still return `ok: true`, so success does not prove every runtime adopted the new account. Same-account token changes can also change the auth hash used to decide whether restarting is needed.
 
@@ -32,7 +32,7 @@ Sources: [switch command](https://github.com/xjoker/codex-switch/blob/v20261001.
 
 ### High credential exposure if the server user is compromised: inactive accounts are plaintext
 
-Saved profiles are serialized JSON under `~/.codex-switch/profiles/<alias>/auth.json`. Unix writes use private directory/file permissions, `0700`/`0600`, and atomic replacement. These are good protections against other ordinary Linux users, but the snapshots are not encrypted. Processes running as `muuka`, including coding agents with sufficient filesystem access, can read all saved accounts. Root can also read them.
+Saved profiles are serialized JSON under `~/.codex-switch/profiles/<alias>/auth.json`. Unix writes use private directory/file permissions, `0700`/`0600`, and atomic replacement. These are good protections against other ordinary Linux users, but the snapshots are not encrypted. Processes running as the same OS user, including coding agents with sufficient filesystem access, can read all saved accounts. Root can also read them.
 
 Auth backups contain credential bytes too. Removing a profile archives it into `deleted-profiles`, retaining recoverable credentials. Removal is not revocation. Backup and export practices must account for those copies. A stale backup also cannot undo refresh-token rotation at OpenAI.
 

@@ -12,7 +12,7 @@ async function main() {
   const script = await fs.readFile(path.join(__dirname, 'server-install-remote.sh'), 'utf8');
   console.log(`Installing the headless helper on ${alias} as the configured SSH user.`);
   console.log('Installs source and two pinned dependencies. No sudo, login import, Codex config change or daemon restart.');
-  const tar = spawn('tar', ['--no-xattrs', '--no-acls', '-C', taskRoot, '-cf', '-', 'src/server', 'src/codex-app-server.js', 'src/rate-limits.js', 'server/package.json', 'server/package-lock.json', 'LICENSE', 'NOTICE.md', 'docs/LINUX-SERVER.md'], { env: { ...process.env, COPYFILE_DISABLE: '1' }, stdio: ['ignore', 'pipe', 'inherit'] });
+  const tar = spawn('tar', ['--no-xattrs', '--no-acls', '-C', taskRoot, '-cf', '-', 'src/server', 'src/codex-app-server.js', 'src/rate-limits.js', 'server/package.json', 'server/package-lock.json', 'LICENSE', 'NOTICE.md', 'licenses', 'docs/LINUX-SERVER.md'], { env: { ...process.env, COPYFILE_DISABLE: '1' }, stdio: ['ignore', 'pipe', 'inherit'] });
   const ssh = spawn('ssh', [...connection.args, '--', connection.destination, script], { stdio: ['pipe', 'inherit', 'inherit'] });
   tar.stdout.pipe(ssh.stdin); ssh.stdin.on('error', () => {});
   const status = child => new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });

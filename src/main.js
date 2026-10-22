@@ -9,6 +9,7 @@ const { ensureFileCredentialStore } = require('./codex-config');
 const { readRateLimits } = require('./codex-app-server');
 const { publishState } = require('./state-events');
 const { createAutoUpdater } = require('./auto-updater');
+const { deriveIdentity, identityMatches, assertSavedIdentity } = require('./account-identity');
 const {
   chooseHandoff,
   normalizeHandoffJournal,
@@ -68,6 +69,11 @@ let guardedUsagePollTimer = null;
 let guardedHandoffBackgroundEnabled = false;
 let appIsQuitting = false;
 let autoUpdater;
+
+// A second process must not write the same vault or sweep another probe home.
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) app.quit();
+else app.on('second-instance', () => showMainWindow());
 
 function assertSupportedPlatform() {
   if (!isMac && !isWindows) throw new Error('This hardened build currently supports macOS and Windows only.');
@@ -381,8 +387,10 @@ async function cleanupStaleRateLimitHomes() {
 async function probeSavedAccount(account, index) {
   const useLiveHome = !index.pendingLogin && index.activeId === account.id && await exists(AUTH_PATH);
   if (useLiveHome) {
+    assertSavedIdentity(account.identity, deriveIdentity(await readCurrentAuth()));
     const result = await readRateLimits({ codexHome: CODEX_HOME });
     const refreshedAuth = await readCurrentAuth();
+    assertSavedIdentity(account.identity, deriveIdentity(refreshedAuth));
     await writeAtomic(accountBlobPath(account.id), protect(refreshedAuth));
     account.identity = { ...account.identity, ...deriveIdentity(refreshedAuth) };
     account.lastSavedAt = new Date().toISOString();
@@ -398,6 +406,7 @@ async function probeSavedAccount(account, index) {
   }
   const auth = unprotect(protectedAuth);
   JSON.parse(auth.toString('utf8'));
+  assertSavedIdentity(account.identity, deriveIdentity(auth));
 
   const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), RATE_LIMIT_TEMP_PREFIX));
   try {
@@ -407,10 +416,7 @@ async function probeSavedAccount(account, index) {
     const refreshedAuth = await fs.readFile(path.join(tempHome, 'auth.json'));
     if (!refreshedAuth.equals(auth)) {
       const actualIdentity = deriveIdentity(refreshedAuth);
-      const hasExpectedIdentity = Boolean(account.identity?.accountId || account.identity?.email);
-      if (hasExpectedIdentity && !identityMatches(account.identity, actualIdentity)) {
-        throw Object.assign(new Error('Refreshed login identity mismatch.'), { code: 'ACCOUNT_IDENTITY_MISMATCH' });
-      }
+      assertSavedIdentity(account.identity, actualIdentity);
       await writeAtomic(accountBlobPath(account.id), protect(refreshedAuth));
       account.identity = { ...account.identity, ...actualIdentity };
       account.lastSavedAt = new Date().toISOString();
@@ -524,37 +530,8 @@ async function readCurrentAuth() {
   return bytes;
 }
 
-function deriveIdentity(authBytes) {
-  try {
-    const auth = JSON.parse(authBytes.toString('utf8'));
-    const token = auth?.tokens?.id_token || auth?.tokens?.access_token;
-    if (!token || !token.includes('.')) return {};
-    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const decoded = JSON.parse(Buffer.from(payload.padEnd(Math.ceil(payload.length / 4) * 4, '='), 'base64').toString('utf8'));
-    const nested = decoded?.['https://api.openai.com/auth'] || {};
-    return {
-      email: decoded.email || nested.email || null,
-      accountId: nested.chatgpt_account_id || null,
-      planType: nested.chatgpt_plan_type || null,
-    };
-  } catch {
-    return {};
-  }
-}
-
-function identityMatches(left = {}, right = {}) {
-  if (left.accountId && right.accountId) return left.accountId === right.accountId;
-  if (left.email && right.email) return left.email.toLowerCase() === right.email.toLowerCase();
-  return false;
-}
-
 function assertReauthIdentity(expected = {}, actual = {}) {
-  if (expected.accountId && actual.accountId && expected.accountId !== actual.accountId) {
-    throw new Error('The signed-in Codex workspace/account does not match the account being re-authenticated.');
-  }
-  if (expected.email && actual.email && expected.email.toLowerCase() !== actual.email.toLowerCase()) {
-    throw new Error(`The signed-in Codex account (${actual.email}) does not match the saved account (${expected.email}).`);
-  }
+  assertSavedIdentity(expected, actual);
 }
 
 async function importCurrentAccount(displayName) {
@@ -565,6 +542,7 @@ async function importCurrentAccount(displayName) {
 
     const auth = await readCurrentAuth();
     const identity = deriveIdentity(auth);
+    assertSavedIdentity(identity, identity);
     const index = await readIndex();
 
     if (index.pendingLogin?.mode === 'reauth') {
@@ -610,6 +588,7 @@ async function saveActiveCredential(index) {
   const account = index.accounts.find((a) => a.id === index.activeId);
   if (!account) return;
   const auth = await readCurrentAuth();
+  assertSavedIdentity(account.identity, deriveIdentity(auth));
   await writeAtomic(accountBlobPath(account.id), protect(auth));
   account.identity = { ...account.identity, ...deriveIdentity(auth) };
   account.lastSavedAt = new Date().toISOString();
@@ -928,9 +907,7 @@ async function switchAccountNow(targetId, { closeRunningCodex = true } = {}) {
     const targetCipher = await fs.readFile(accountBlobPath(targetId));
     const targetAuth = unprotect(targetCipher);
     JSON.parse(targetAuth.toString('utf8'));
-    if (!closeRunningCodex && !identityMatches(target.identity, deriveIdentity(targetAuth))) {
-      throw Object.assign(new Error('The saved destination credential does not match its account identity.'), { code: 'HANDOFF_VERIFY_FAILED' });
-    }
+    assertSavedIdentity(target.identity, deriveIdentity(targetAuth));
 
     if (closeRunningCodex) {
       await closeCodex();
@@ -1418,6 +1395,7 @@ function installIpc() {
 }
 
 app.whenReady().then(async () => {
+  if (!primaryInstance) return;
   assertSupportedPlatform();
   await ensureDirs();
   await ensureCodexCompatibility();

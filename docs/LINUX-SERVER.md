@@ -8,13 +8,13 @@ From this checkout on your Mac:
 
 ```sh
 npm run server -- servers
-npm run server -- servers add skillBased-muuka
+npm run server -- servers add dev-server
 npm run server -- connect
 ```
 
 Discovery reads `~/.ssh/config` and ordinary `Include` files locally. It skips wildcard-only host entries, does not execute `Match exec` or `ProxyCommand`, and does not contact hosts. Conditional includes are reported as a limitation. OpenSSH, rather than this discovery parser, resolves the actual connection settings.
 
-Aliases remain distinct even when they point to the same address. For example, a root alias and a muuka alias are separate server choices. Saving an alias adds a local shortcut; it does not edit SSH configuration. A manual server can also be saved:
+Aliases remain distinct even when they point to the same address. For example, a root alias and a developer alias are separate server choices. Saving an alias adds a local shortcut; it does not edit SSH configuration. A manual server can also be saved:
 
 ```sh
 npm run server -- servers add staging --address staging.example.com --user developer --port 2222
@@ -28,8 +28,8 @@ Manual entries use your normal SSH agent/configuration and host-key verification
 Review the source and setup scripts, then run:
 
 ```sh
-npm run server:install -- skillBased-muuka
-npm run server -- --host skillBased-muuka doctor
+npm run server:install -- dev-server
+npm run server -- --host dev-server doctor
 ```
 
 Setup transfers local source, installs two pinned dependencies from the separate `server/package-lock.json` with package scripts disabled, and selects the completed release. It uses the SSH user, requires no sudo, refuses root installation, and starts no background service or public listener. It does not import accounts, change Codex configuration, restart Codex, or install Electron. This command also accepts saved manual server names.
@@ -45,8 +45,8 @@ node ~/.local/share/codex-account-switcher/app/src/server/cli.js --help
 ## See usage while working
 
 ```sh
-npm run server -- --host skillBased-muuka live
-npm run server -- --host skillBased-muuka list
+npm run server -- --host dev-server live
+npm run server -- --host dev-server list
 ```
 
 `live` connects to the existing Codex daemon's private Unix WebSocket. It asks for account identity and rate limits without copying credentials or starting another Codex process. Normal authentication inside that owning daemon may refresh tokens. Separately launched Codex processes can have different identities; the result is labelled as one daemon's view and is not silently assigned to a saved account/workspace.
@@ -56,8 +56,8 @@ npm run server -- --host skillBased-muuka list
 ## Enroll accounts
 
 ```sh
-npm run server -- --host skillBased-muuka import-current personal
-npm run server -- --host skillBased-muuka login work
+npm run server -- --host dev-server import-current personal
+npm run server -- --host dev-server login work
 ```
 
 The first account operation creates a passphrase-encrypted vault and asks you to confirm a new passphrase of at least 12 characters. Subsequent credential operations prompt again. The passphrase is hidden, stays out of shell arguments and persistent settings, and is never sent to the desktop renderer. There is no forgotten-passphrase recovery; preserve an encrypted backup or sign in again.
@@ -77,9 +77,9 @@ cli_auth_credentials_store = "file"
 The helper reads this setting with a TOML parser; it does not modify it. Shared-home switching currently requires the default OpenAI provider without a selected configuration profile. Existing managed workspace restrictions remain in effect through Codex and the explicit target-workspace check.
 
 ```sh
-npm run server -- --host skillBased-muuka refresh
-npm run server -- --host skillBased-muuka switch work
-npm run server -- --host skillBased-muuka reauth work
+npm run server -- --host dev-server refresh
+npm run server -- --host dev-server switch work
+npm run server -- --host dev-server reauth work
 ```
 
 `refresh` checks saved accounts in isolated homes. It preserves rotated credentials even when the subsequent usage request fails, encrypts them before removing the temporary copy, and updates the live login when its own token was rotated. It therefore requires stopped clients. No direct undocumented ChatGPT backend requests, model warmups, credit redemption or automatic switching are implemented by the helper.
@@ -95,7 +95,7 @@ Process scanning and file checks reduce races; they are not a launch gate honore
 Saved credentials and pending transaction data use scrypt-derived AES-256-GCM encryption in `accounts.vault`. Files/directories use mode `0600`/`0700`. The public `state.json` cache contains labels, identity and usage only. Live `auth.json` remains readable by Codex, and a process with your user permissions can read it or memory from an unlocked operation. Encryption does not separate hostile processes running as the same Linux user.
 
 ```sh
-npm run server -- --host skillBased-muuka recover
+npm run server -- --host dev-server recover
 ```
 
 Recovery requires stopped clients and refuses unfamiliar live state. An unwritten interrupted switch is cancelled; a written one is finalized. A pending refresh can restore the newer encrypted token. It never blindly switches a second time.

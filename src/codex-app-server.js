@@ -27,6 +27,14 @@ function resolveCodexRuntime({ platform = process.platform, arch = process.arch 
   const target = TARGETS[`${platform}:${arch}`];
   if (!target) throw Object.assign(new Error(`Usage checks are not supported on ${platform} ${arch}.`), { code: 'RUNTIME_UNSUPPORTED' });
 
+  // Packaging copies the target-specific runtime before code signing. This is
+  // independent of which optional npm package was installed on the build host.
+  if (process.resourcesPath) {
+    const root = path.join(process.resourcesPath, 'codex-runtime');
+    const binaryPath = path.join(root, 'bin', target.binary);
+    if (fs.existsSync(binaryPath)) return { binaryPath, pathDir: path.join(root, 'codex-path') };
+  }
+
   let packageJsonPath;
   try {
     packageJsonPath = require.resolve(`${target.packageName}/package.json`);
@@ -184,6 +192,7 @@ function readRateLimits(options) {
 }
 
 module.exports = {
+  TARGETS,
   appServerRequest,
   readRateLimits,
   resolveCodexRuntime,

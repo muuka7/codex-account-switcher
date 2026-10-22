@@ -16,7 +16,7 @@ encrypted account storage, live daemon usage and supervised account switching.
 Start with `npm run server -- servers`. See [Linux and SSH setup](docs/LINUX-SERVER.md).
 The desktop UI remains local in this version; server account cards are a later step.
 
-Version 0.2.1 supports macOS and Windows. It expects Codex authentication at `~/.codex/auth.json` / `%USERPROFILE%\.codex\auth.json` (or `$CODEX_HOME/auth.json`). The official Codex desktop app remains responsible for authentication.
+The 0.2.2 development line supports macOS and Windows. It expects Codex authentication at `~/.codex/auth.json` / `%USERPROFILE%\.codex\auth.json` (or `$CODEX_HOME/auth.json`). The official Codex desktop app remains responsible for authentication.
 
 Each saved account card can show the remaining five-hour and weekly capacity
 reported by Codex, together with the server-provided reset time. A refresh reads
@@ -49,11 +49,17 @@ Prebuilt installers for both platforms are attached to each entry on the
 | `CodexAccountSwitcher-<version>-x64.dmg` | macOS, Intel |
 | `CodexAccountSwitcher-Setup-<version>-x64.exe` | Windows 10/11, 64-bit |
 
-Check what you downloaded against `SHA256SUMS.txt` before installing. macOS
-releases are signed with Developer ID Application and notarized by Apple. After
-installing a signed release, the app checks GitHub Releases automatically and
-offers to download and install newer macOS versions from the signed ZIP
-payload.
+Check what you downloaded against `SHA256SUMS.txt` before installing.
+**Existing v0.2.1 and earlier assets are unsigned.** Signing/notarization and
+macOS auto-update are configured for the next release; they are not a claim
+about those existing downloads. The release workflow requires Apple signing
+credentials and verifies signatures, notarization and downloaded assets before
+publication. Until that verified release exists, use the source for development
+or follow the signing status recorded on each release.
+
+A signed macOS release checks GitHub for updates automatically. Download and
+**Install and restart** each require an explicit action; closing the app does
+not install a downloaded update. Install the first signed version manually.
 
 Windows releases are not currently code-signed, so SmartScreen may show
 "Windows protected your PC". Choose **More info**, then **Run anyway**.
@@ -61,13 +67,14 @@ Windows releases are not currently code-signed, so SmartScreen may show
 ## Development
 
 ```bash
-npm install
+nvm use
+npm ci
 npm run lint
 npm test
 npm start
 ```
 
-For deterministic installation in CI, commit the generated `package-lock.json` after the first trusted local `npm install`, then use `npm ci` thereafter.
+Use Node.js 24 (see `.nvmrc`) for desktop development and builds; the minimum is 22.12.0. Commit lockfile changes with dependency updates. The standalone Linux helper supports Node.js 20+ through its separate manifest.
 
 ## Build
 
@@ -90,9 +97,7 @@ hardening is applied to both packaged executables.
 Each command only builds for the platform it runs on — a DMG cannot be produced on Windows. Releases are therefore built by GitHub Actions on both a macOS and a Windows runner, and pushing a `v*` tag publishes the installers to the Releases page. See `RELEASING.md`.
 
 The release workflow requires the maintainer's Apple signing and notarization
-secrets; see [RELEASING.md](RELEASING.md). Local packaging without those
-credentials is still useful for development, but it will not produce a
-distribution-trusted macOS installer.
+secrets; see [RELEASING.md](RELEASING.md). For an ad-hoc local packaging check, run `npm run pack:mac -- -c.mac.forceCodeSigning=false -c.mac.identity=- -c.mac.notarize=false`. That output is for validation only; it is not a distribution-trusted installer.
 
 ## The interface
 
@@ -167,3 +172,8 @@ instructions.
 ## Upstream
 
 This project retains MIT attribution and is a derivative inspired primarily by `GboyCode/CodexAuth`, with UX ideas informed by `ZOONGG/codex-swap-account`. See `NOTICE.md`.
+
+## Public launch
+
+See [Public readiness](docs/PUBLIC-READINESS.md) for validation results and the
+remaining GitHub settings and signed-release checks.

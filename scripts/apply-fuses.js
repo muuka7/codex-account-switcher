@@ -1,7 +1,9 @@
 const { flipFuses, FuseVersion, FuseV1Options } = require('@electron/fuses');
 const path = require('node:path');
+const { bundleRuntime } = require('./bundle-runtime');
 
 exports.default = async function afterPack(context) {
+  await bundleRuntime(context);
   const appName = context.packager.appInfo.productFilename;
   let executable;
 

@@ -5,7 +5,7 @@ function safeErrorMessage(error) {
   return message.replace(/https?:\/\/\S+/gi, '[update service]').slice(0, 240);
 }
 
-function createAutoUpdater({ supported, packaged, onStatus }) {
+function createAutoUpdater({ supported, packaged, onStatus, updater: providedUpdater, currentVersion }) {
   const enabled = Boolean(supported && packaged);
   let updater = null;
   let checkPromise = null;
@@ -42,11 +42,11 @@ function createAutoUpdater({ supported, packaged, onStatus }) {
     };
   }
 
-  ({ autoUpdater: updater } = require('electron-updater'));
+  updater = providedUpdater || require('electron-updater').autoUpdater;
   updater.autoDownload = false;
-  updater.autoInstallOnAppQuit = true;
+  updater.autoInstallOnAppQuit = false;
   updater.allowDowngrade = false;
-  status.currentVersion = require('electron').app.getVersion();
+  status.currentVersion = currentVersion || require('electron').app.getVersion();
 
   updater.on('checking-for-update', () => {
     setStatus({ state: 'checking', error: null, percent: null });

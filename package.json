@@ -1,6 +1,6 @@
 {
   "name": "codex-account-switcher",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Codex desktop account switcher with OS-backed credential protection and usage visibility.",
   "main": "src/main.js",
@@ -11,15 +11,18 @@
     "server": "node src/server/cli.js",
     "server:install": "node scripts/install-server.js",
     "lint:server": "node scripts/check-server.js",
-    "lint": "node --check src/main.js && node --check src/auto-updater.js && node --check src/codex-config.js && node --check src/codex-app-server.js && node --check src/rate-limits.js && node --check src/handoff-policy.js && node --check src/state-events.js && node --check src/preload.js && node --check src/ui/icons.js && node --check src/ui/app.js && node --check scripts/apply-fuses.js",
+    "lint": "node scripts/check.js",
     "test": "node --test test/*.test.js",
-    "pack:mac": "electron-builder --mac dmg --x64 --arm64 --publish never",
-    "pack:win": "electron-builder --win nsis --x64 --publish never"
+    "pack:mac": "electron-builder --mac dmg zip --x64 --arm64 --publish never",
+    "pack:win": "electron-builder --win nsis --x64 --publish never",
+    "verify:release": "node scripts/verify-release.js"
   },
   "devDependencies": {
     "@electron/fuses": "1.8.0",
-    "electron": "44.0.0",
-    "electron-builder": "26.15.3"
+    "electron": "44.9.3",
+    "electron-builder": "26.15.3",
+    "js-yaml": "4.3.2",
+    "tar": "7.5.22"
   },
   "build": {
     "appId": "com.muuka.privatecodexswitcher",
@@ -34,13 +37,16 @@
     },
     "files": [
       "src/**/*",
-      "scripts/apply-fuses.js",
+      "!src/server/**/*",
       "README.md",
       "SECURITY.md",
-      "docs/**/*",
+      "docs/USAGE-MONITORING.md",
+      "docs/LINUX-SERVER.md",
       "LICENSE",
       "NOTICE.md",
-      "package.json"
+      "package.json",
+      "!node_modules/@openai/codex-*/**/*",
+      "licenses/**/*"
     ],
     "mac": {
       "category": "public.app-category.utilities",
@@ -63,7 +69,8 @@
       "artifactName": "CodexAccountSwitcher-${version}-${arch}.${ext}",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "notarize": true
+      "notarize": true,
+      "forceCodeSigning": true
     },
     "win": {
       "target": [
@@ -96,5 +103,8 @@
     "electron-updater": "6.8.9",
     "smol-toml": "1.9.1",
     "ws": "8.22.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }
