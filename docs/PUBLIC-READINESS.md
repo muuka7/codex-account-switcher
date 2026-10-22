@@ -1,7 +1,7 @@
 # Public readiness: 0.2.2 candidate
 
-Status on 22 October 2026: source findings addressed; native packaging and the
-first signed distribution remain separate verification gates. The repository
+Status on 22 October 2026: source findings addressed; both native packaging smoke
+checks passed. The first signed distribution remains a separate verification gate. The repository
 has not been made public and no new release has been published.
 
 ## Fixed in the candidate
@@ -33,14 +33,21 @@ has not been made public and no new release has been published.
 
 Local validation uses Node.js 24: all 43 behavioral tests pass, syntax and shell
 checks pass, actionlint passes, and both npm audits report zero vulnerabilities.
-Secret scans are repeated on the publication candidate. The earlier exposure
+A repeated Gitleaks scan of all 52 reachable commits found no secret matches. The earlier exposure
 review found no secret matches in the then-current 50 commits or retained logs
 from 132 Actions runs; those findings are scoped to that snapshot.
 
-The local native macOS build could not complete because the developer volume
-has insufficient free space (ENOSPC). Do not treat unit tests or artifact
-fixtures as proof of a successful installer build. CI packaging jobs are the
-next gate, followed by a signed release on properly provisioned runners.
+GitHub [CI run 39854567595](https://github.com/muuka7/codex-account-switcher/actions/runs/39854567595)
+passed clean-install validation and both native macOS/Windows packaging jobs
+for implementation commit `50e628a`. macOS verification covered both Intel and
+Apple Silicon ZIP/DMG outputs, update metadata integrity and the bundled target
+runtimes. Windows verification covered the installer and bundled runtime.
+A later documentation/release-allowlist change does not alter those binaries.
+
+The local macOS attempt was blocked by insufficient disk space (ENOSPC);
+GitHub's native build supplied the missing packaging evidence. These ad-hoc
+smoke builds are not Developer ID signed or notarized and were not published.
+A signed distribution/update test still requires properly provisioned runners.
 
 ## At the visibility change
 

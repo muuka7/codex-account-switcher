@@ -55,7 +55,7 @@ jobs:
 
       - name: Run desktop behavioral tests on Windows
         if: runner.os == 'Windows'
-        run: node --test test/account-identity.test.js test/auto-updater.test.js test/handoff-policy.test.js test/rate-limits.test.js test/release-artifacts.test.js test/state-events.test.js
+        run: node --test test/account-identity.test.js test/auto-updater.test.js test/bundle-runtime.test.js test/handoff-policy.test.js test/rate-limits.test.js test/release-artifacts.test.js test/state-events.test.js
 
       - name: Validate release version
         env:
@@ -116,7 +116,7 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
-            release/*.yml
+            release/latest*.yml
             release/*.exe
           if-no-files-found: error
           retention-days: 1
