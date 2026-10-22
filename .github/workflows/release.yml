@@ -47,19 +47,43 @@ jobs:
 
       - run: npm run lint
 
+      - name: Validate macOS signing credentials
+        if: matrix.os == 'macos-latest'
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          test -n "$MAC_CSC_LINK" || { echo 'Missing MAC_CSC_LINK'; exit 1; }
+          test -n "$MAC_CSC_KEY_PASSWORD" || { echo 'Missing MAC_CSC_KEY_PASSWORD'; exit 1; }
+          test -n "$APPLE_API_KEY_BASE64" || { echo 'Missing APPLE_API_KEY_BASE64'; exit 1; }
+          test -n "$APPLE_API_KEY_ID" || { echo 'Missing APPLE_API_KEY_ID'; exit 1; }
+          test -n "$APPLE_API_ISSUER" || { echo 'Missing APPLE_API_ISSUER'; exit 1; }
+          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 -D > "$key_path"
+          chmod 600 "$key_path"
+          {
+            echo "APPLE_API_KEY=$key_path"
+            echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID"
+            echo "APPLE_API_ISSUER=$APPLE_API_ISSUER"
+          } >> "$GITHUB_ENV"
+
       - name: Package
         run: npm run ${{ matrix.script }}
         env:
-          # The project ships unsigned on purpose: signing identities belong to
-          # the repository owner. Without this, electron-builder tries to find
-          # and use a keychain identity on the macOS runner and fails.
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.os == 'macos-latest' && 'false' || '' }}
+          CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: |
             release/*.dmg
+            release/*.zip
+            release/*.yml
             release/*.exe
           if-no-files-found: error
           retention-days: 7
@@ -100,24 +124,20 @@ jobs:
           | --- | --- |
           | `CodexAccountSwitcher-*-arm64.dmg` | macOS, Apple Silicon |
           | `CodexAccountSwitcher-*-x64.dmg` | macOS, Intel |
+          | `CodexAccountSwitcher-*-arm64.zip` | macOS auto-update payload |
+          | `CodexAccountSwitcher-*-x64.zip` | macOS auto-update payload |
+          | `latest-mac.yml` | macOS auto-update metadata |
           | `CodexAccountSwitcher-Setup-*-x64.exe` | Windows 10/11, 64-bit |
 
-          ## These builds are not code-signed
+          ## macOS distribution
 
-          Signing and notarization need the repository owner's identities, so
-          they are deliberately not configured. Both operating systems will warn
-          you the first time you open the app.
+          macOS installers are signed with Developer ID Application and notarized
+          by Apple in the macOS build job. The app can check GitHub Releases for
+          updates and download them from the signed ZIP artifact.
 
-          **macOS** — the app is quarantined on download. After dragging it to
-          Applications, either right-click the app and choose **Open**, or clear
-          the quarantine flag:
-
-          ```
-          xattr -dr com.apple.quarantine "/Applications/Codex Account Switcher.app"
-          ```
-
-          **Windows** — SmartScreen shows "Windows protected your PC". Choose
-          **More info**, then **Run anyway**.
+          **Windows** — SmartScreen may show "Windows protected your PC" until
+          Windows code signing is configured. Choose **More info**, then **Run
+          anyway**.
 
           Verify what you downloaded against `SHA256SUMS.txt` before installing.
 
@@ -139,4 +159,4 @@ jobs:
             --title "Codex Account Switcher $TAG" \
             --notes-file notes.md \
             --verify-tag \
-            dist/*.dmg dist/*.exe dist/SHA256SUMS.txt
+            dist/*.dmg dist/*.zip dist/*.yml dist/*.exe dist/SHA256SUMS.txt

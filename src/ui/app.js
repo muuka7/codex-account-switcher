@@ -39,6 +39,7 @@ let currentState = null;
 let currentSettings = null;
 let currentRateLimits = { refreshing: false, checkedAt: null, confirmedAt: null, confirmationPendingUntil: null, accounts: {} };
 let currentHandoff = { phase: 'idle', source: null, target: null, message: null, enabled: false };
+let currentUpdate = { supported: false, enabled: false, state: 'unsupported', currentVersion: null, availableVersion: null, percent: null, error: null };
 let busyDepth = 0;
 let openMenu = null;
 let liveWatchTimer = null;
@@ -940,6 +941,49 @@ async function loadHandoff() {
   try { applyHandoff(await api.getHandoff()); } catch { /* handoff is optional */ }
 }
 
+function renderUpdateStatus(status) {
+  currentUpdate = status || currentUpdate;
+  const section = el('updates-section');
+  if (!section) return;
+  section.hidden = !currentUpdate.enabled;
+  if (!currentUpdate.enabled) return;
+
+  const message = el('update-status');
+  const check = el('update-check');
+  const download = el('update-download');
+  const install = el('update-install');
+  check.disabled = currentUpdate.state === 'checking' || currentUpdate.state === 'downloading';
+  download.hidden = currentUpdate.state !== 'available';
+  install.hidden = currentUpdate.state !== 'downloaded';
+
+  if (currentUpdate.state === 'checking') message.textContent = 'Checking for updates…';
+  else if (currentUpdate.state === 'available') message.textContent = `Version ${currentUpdate.availableVersion || 'new'} is available.`;
+  else if (currentUpdate.state === 'downloading') {
+    const percent = Number.isFinite(Number(currentUpdate.percent)) ? ` ${Math.round(Number(currentUpdate.percent))}%` : '';
+    message.textContent = `Downloading update…${percent}`;
+  } else if (currentUpdate.state === 'downloaded') message.textContent = `Version ${currentUpdate.availableVersion || 'new'} is ready to install.`;
+  else if (currentUpdate.state === 'up-to-date') message.textContent = 'You are up to date.';
+  else if (currentUpdate.state === 'error') message.textContent = currentUpdate.error || 'Could not check for updates.';
+  else message.textContent = 'Updates are checked automatically.';
+}
+
+async function loadUpdateStatus() {
+  if (typeof api.getUpdateStatus !== 'function') return;
+  try { renderUpdateStatus(await api.getUpdateStatus()); } catch { /* updates are optional */ }
+}
+
+async function checkForUpdates() {
+  setBusy(true);
+  try { renderUpdateStatus(await api.checkForUpdates()); } catch (error) { reportError(error); }
+  finally { setBusy(false); }
+}
+
+async function downloadUpdate() {
+  setBusy(true);
+  try { renderUpdateStatus(await api.downloadUpdate()); } catch (error) { reportError(error); }
+  finally { setBusy(false); }
+}
+
 async function refreshRateLimits() {
   if (typeof api.refreshRateLimits !== 'function') return;
   const button = el('refresh-rate-limits');
@@ -958,15 +1002,20 @@ async function refreshRateLimits() {
 el('open-codex').addEventListener('click', () => run(null, async () => { await api.openCodex(); }));
 el('open-store').addEventListener('click', () => api.openStoreFolder().catch(reportError));
 el('settings-open-store').addEventListener('click', () => api.openStoreFolder().catch(reportError));
+el('update-check')?.addEventListener('click', checkForUpdates);
+el('update-download')?.addEventListener('click', downloadUpdate);
+el('update-install')?.addEventListener('click', () => api.installUpdate().catch(reportError));
 el('refresh-rate-limits').addEventListener('click', refreshRateLimits);
 
 if (typeof api.onStateUpdated === 'function') api.onStateUpdated(applyState);
 if (typeof api.onRateLimitsUpdated === 'function') api.onRateLimitsUpdated(applyRateLimits);
 if (typeof api.onHandoffUpdated === 'function') api.onHandoffUpdated(applyHandoff);
+if (typeof api.onUpdateStatus === 'function') api.onUpdateStatus(renderUpdateStatus);
 
 el('open-settings').addEventListener('click', () => {
   renderTheme();
   loadUsage();
+  loadUpdateStatus();
   openLayer(el('settings-sheet'), el('settings-back'));
 });
 el('settings-back').addEventListener('click', () => closeLayer(el('settings-sheet')));
@@ -1069,6 +1118,7 @@ el('shortcut-save').addEventListener('click', () => {
     await loadHandoff();
     await loadSettings();
     await loadUsage();
+    await loadUpdateStatus();
     renderTheme();
     if (currentState?.pendingLogin?.mode === 'new') openAddDialog();
   } catch (error) {

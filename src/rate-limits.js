@@ -3,6 +3,7 @@ const ONE_WEEK_MINS = 10080;
 const CACHE_STALE_MS = 30 * 60 * 1000;
 
 function finiteNumber(value) {
+  if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -12,7 +13,7 @@ function normalizeWindow(window) {
   const usedPercent = finiteNumber(window.usedPercent);
   const windowDurationMins = finiteNumber(window.windowDurationMins);
   const resetsAt = finiteNumber(window.resetsAt);
-  if (usedPercent === null || windowDurationMins === null) return null;
+  if (usedPercent === null || windowDurationMins === null || windowDurationMins <= 0) return null;
   return {
     usedPercent: Math.min(100, Math.max(0, usedPercent)),
     remainingPercent: Math.min(100, Math.max(0, 100 - usedPercent)),
@@ -41,6 +42,20 @@ function snapshotFromResult(result, checkedAt = new Date().toISOString()) {
     rateLimitReachedType: bucket.rateLimitReachedType || null,
     error: null,
   };
+}
+
+// The server view keeps every metered bucket and duration instead of assuming
+// that every subscription exposes the desktop's familiar 5h/week pair.
+function allBucketsFromResult(result = {}) {
+  const buckets = result.rateLimitsByLimitId && typeof result.rateLimitsByLimitId === 'object' && Object.keys(result.rateLimitsByLimitId).length
+    ? result.rateLimitsByLimitId : result.rateLimits ? { codex: result.rateLimits } : {};
+  return Object.entries(buckets).filter(([, b]) => b && typeof b === 'object').map(([id, b]) => ({
+    id: String(b.limitId || id).slice(0, 120),
+    name: typeof b.limitName === 'string' ? b.limitName.slice(0, 120) : null,
+    primary: normalizeWindow(b.primary),
+    secondary: normalizeWindow(b.secondary),
+    reached: typeof b.rateLimitReachedType === 'string' ? b.rateLimitReachedType.slice(0, 80) : null,
+  }));
 }
 
 function normalizeError(error) {
@@ -131,6 +146,7 @@ function publicRateLimitState(cacheValue, { refreshing = false, now = Date.now()
 }
 
 module.exports = {
+  allBucketsFromResult,
   CACHE_STALE_MS,
   FIVE_HOURS_MINS,
   ONE_WEEK_MINS,

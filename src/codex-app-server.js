@@ -54,15 +54,18 @@ function appServerRequest({
   params = {},
   timeoutMs = 30000,
   runtime = resolveCodexRuntime(),
+  env = process.env,
+  cwd,
   errorCode = 'APP_SERVER_REQUEST_FAILED',
   errorMessage = 'Codex could not complete the requested check.',
 }) {
   return new Promise((resolve, reject) => {
-    const pathParts = [runtime.pathDir, process.env.PATH].filter(Boolean);
+    const pathParts = [runtime.pathDir, env.PATH].filter(Boolean);
     const child = spawn(runtime.binaryPath, ['app-server'], {
+      cwd,
       windowsHide: true,
       env: {
-        ...process.env,
+        ...env,
         PATH: pathParts.join(path.delimiter),
         CODEX_HOME: codexHome,
         CODEX_SQLITE_HOME: sqliteHome,
@@ -97,13 +100,14 @@ function appServerRequest({
         child.kill('SIGKILL');
         await waitForClose(700);
       }
+      if (!closed) throw appServerError('Usage runtime did not stop.', 'APP_SERVER_STOP_FAILED');
     }
 
     async function finish(error, value) {
       if (finishing) return;
       finishing = true;
       clearTimeout(timeout);
-      await stopChild();
+      try { await stopChild(); } catch (stopError) { reject(stopError); return; }
       if (error) reject(error);
       else resolve(value);
     }
@@ -117,6 +121,7 @@ function appServerRequest({
     }, timeoutMs);
 
     child.once('error', () => finish(appServerError('The Codex usage runtime could not be started.', 'APP_SERVER_START_FAILED')));
+    child.stdin.on('error', () => finish(appServerError('The Codex usage runtime connection closed.', 'APP_SERVER_EXITED')));
     child.once('close', (code) => {
       markClosed();
       if (!finishing) finish(appServerError(`The Codex usage runtime stopped unexpectedly (${code ?? 'unknown'}).`, 'APP_SERVER_EXITED'));
@@ -126,6 +131,10 @@ function appServerRequest({
     });
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString('utf8');
+      if (stdout.length > 4 * 1024 * 1024) {
+        finish(appServerError('Usage response exceeded the size limit.', 'APP_SERVER_REQUEST_FAILED'));
+        return;
+      }
       while (stdout.includes('\n')) {
         const newline = stdout.indexOf('\n');
         const line = stdout.slice(0, newline).trim();
@@ -134,6 +143,10 @@ function appServerRequest({
         let message;
         try { message = JSON.parse(line); } catch { continue; }
 
+        if (message.id === 1 && message.error) {
+          finish(appServerError('Codex could not initialize the usage connection.', 'APP_SERVER_REQUEST_FAILED'));
+          continue;
+        }
         if (message.id === 1 && message.result) {
           send({ method: 'initialized', params: {} });
           send({ id: 2, method, params });
@@ -171,6 +184,7 @@ function readRateLimits(options) {
 }
 
 module.exports = {
+  appServerRequest,
   readRateLimits,
   resolveCodexRuntime,
 };

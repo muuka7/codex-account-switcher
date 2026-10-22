@@ -4,6 +4,11 @@ Notable changes to Codex Account Switcher. Dates are ISO-8601.
 
 ## Unreleased
 
+- Added macOS automatic update checks and a Settings flow to download and
+  install signed releases.
+- Added macOS ZIP/update metadata artifacts, GitHub update-provider
+  configuration, and CI signing/notarization requirements.
+
 ## 0.2.1 — 2026-09-01
 
 - Reissued the 0.2 feature release so Windows, Intel macOS, Apple Silicon

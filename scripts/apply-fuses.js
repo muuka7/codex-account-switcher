@@ -15,6 +15,10 @@ exports.default = async function afterPack(context) {
 
   await flipFuses(executable, {
     version: FuseVersion.V1,
+    // On Apple Silicon, flipping fuses invalidates Electron's embedded
+    // ad-hoc signature. Clear it so electron-builder can apply the real
+    // Developer ID signature afterward (or produce a launchable local build).
+    resetAdHocDarwinSignature: context.electronPlatformName === 'darwin' && context.arch === 3,
     [FuseV1Options.RunAsNode]: false,
     [FuseV1Options.EnableCookieEncryption]: true,
     [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,

@@ -1,9 +1,8 @@
 # Releasing
 
-Releases are built by GitHub Actions, not on a developer machine. A macOS DMG
-can only be produced on macOS, so `.github/workflows/release.yml` builds the two
-platforms on their own runners in parallel and collects both sets of installers
-into a single GitHub Release.
+Releases are built by GitHub Actions, not on a developer machine. macOS signing,
+notarization, and packaging run on macOS, while Windows packaging runs on its
+native runner. The resulting artifacts are collected into one GitHub Release.
 
 ## Cutting a release
 
@@ -26,6 +25,9 @@ these assets:
 | --- | --- |
 | `CodexAccountSwitcher-<version>-arm64.dmg` | macOS, Apple Silicon |
 | `CodexAccountSwitcher-<version>-x64.dmg` | macOS, Intel |
+| `CodexAccountSwitcher-<version>-arm64.zip` | macOS auto-update payload |
+| `CodexAccountSwitcher-<version>-x64.zip` | macOS auto-update payload |
+| `latest-mac.yml` | macOS auto-update metadata |
 | `CodexAccountSwitcher-Setup-<version>-x64.exe` | Windows 10/11, 64-bit |
 | `SHA256SUMS.txt` | Checksums for the above |
 
@@ -50,30 +52,37 @@ Before changing the repository visibility:
    routine changes.
 5. Enable Dependabot security updates, secret scanning, and code scanning in
    the repository settings, then verify that the first scans complete.
-6. Keep unsigned builds clearly labeled until macOS signing/notarization and
-   Windows code signing are configured.
+6. Keep Windows signing status clearly labeled until Windows code signing is
+   configured. macOS signing and notarization are required for distribution.
 
 Changing visibility does not rewrite Git history. Treat every reachable commit,
 tag, branch, release asset, and workflow log as public after the change.
 
-## Builds are unsigned
+## Apple signing and notarization
 
-Code signing and notarization need the repository owner's signing identities and
-credentials, so they are deliberately not configured. The workflow sets
-`CSC_IDENTITY_AUTO_DISCOVERY=false` so electron-builder does not attempt to pick
-up a keychain identity on the macOS runner.
+The macOS job expects these GitHub Actions secrets:
 
-The consequence is that both operating systems warn on first launch, and users
-have to work around it — see **Install** in the README. If these builds are ever
-distributed beyond people who know and trust the source, configure signing and
-notarization first.
+- `MAC_CSC_LINK`: base64-encoded Developer ID Application `.p12` certificate.
+- `MAC_CSC_KEY_PASSWORD`: password used when exporting that certificate.
+- `APPLE_API_KEY_BASE64`: base64-encoded App Store Connect API `.p8` key.
+- `APPLE_API_KEY_ID`: App Store Connect API key ID.
+- `APPLE_API_ISSUER`: App Store Connect issuer ID.
 
-## Distribution status
+Export the certificate from Keychain Access and encode it without committing
+either file:
 
-Once the repository is public, release assets can be downloaded without GitHub
-repository access. The current installers remain unsigned, so broad
-distribution should wait for code signing and notarization. Until then, keep
-the warning in the release notes and ask users to verify `SHA256SUMS.txt`.
+```bash
+base64 -i "Developer ID Application.p12" | pbcopy
+base64 -i "AuthKey_KEYID.p8" | pbcopy
+```
+
+The workflow materializes the API key only on the ephemeral macOS runner,
+passes the certificate to electron-builder, and fails before packaging if any
+required secret is missing. The app's updater uses the signed ZIP artifacts and
+`latest-mac.yml` attached to the GitHub Release.
+
+The existing unsigned releases cannot self-update safely. Install a newly
+signed and notarized release once; subsequent tagged releases can update it.
 
 ## Verifying a build locally
 

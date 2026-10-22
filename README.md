@@ -11,6 +11,11 @@ Local account switcher for the Codex desktop app on macOS and Windows.
 
 ## Current scope
 
+A headless Linux CLI is available for SSH host discovery, saved server shortcuts,
+encrypted account storage, live daemon usage and supervised account switching.
+Start with `npm run server -- servers`. See [Linux and SSH setup](docs/LINUX-SERVER.md).
+The desktop UI remains local in this version; server account cards are a later step.
+
 Version 0.2.1 supports macOS and Windows. It expects Codex authentication at `~/.codex/auth.json` / `%USERPROFILE%\.codex\auth.json` (or `$CODEX_HOME/auth.json`). The official Codex desktop app remains responsible for authentication.
 
 Each saved account card can show the remaining five-hour and weekly capacity
@@ -44,24 +49,14 @@ Prebuilt installers for both platforms are attached to each entry on the
 | `CodexAccountSwitcher-<version>-x64.dmg` | macOS, Intel |
 | `CodexAccountSwitcher-Setup-<version>-x64.exe` | Windows 10/11, 64-bit |
 
-Check what you downloaded against `SHA256SUMS.txt` before installing. Releases
-are currently unsigned; read the warning below before distributing an installer
-to anyone who cannot inspect and build the source themselves.
+Check what you downloaded against `SHA256SUMS.txt` before installing. macOS
+releases are signed with Developer ID Application and notarized by Apple. After
+installing a signed release, the app checks GitHub Releases automatically and
+offers to download and install newer macOS versions from the signed ZIP
+payload.
 
-### The builds are unsigned
-
-Signing and notarization need the repository owner's identities and are
-deliberately not configured, so both systems warn on first launch.
-
-On **macOS**, drag the app to Applications, then either right-click it and choose
-**Open**, or clear the quarantine flag:
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/Codex Account Switcher.app"
-```
-
-On **Windows**, SmartScreen shows "Windows protected your PC". Choose
-**More info**, then **Run anyway**.
+Windows releases are not currently code-signed, so SmartScreen may show
+"Windows protected your PC". Choose **More info**, then **Run anyway**.
 
 ## Development
 
@@ -88,13 +83,16 @@ Windows:
 npm run pack:win
 ```
 
-The macOS build targets Intel and Apple Silicon DMGs. The Windows build targets an x64 NSIS installer. Electron Fuse hardening is applied to both packaged executables.
+The macOS build targets Intel and Apple Silicon DMGs plus the ZIP payloads used
+by auto-update. The Windows build targets an x64 NSIS installer. Electron Fuse
+hardening is applied to both packaged executables.
 
 Each command only builds for the platform it runs on — a DMG cannot be produced on Windows. Releases are therefore built by GitHub Actions on both a macOS and a Windows runner, and pushing a `v*` tag publishes the installers to the Releases page. See `RELEASING.md`.
 
-Code signing and notarization are intentionally not preconfigured because they
-require the maintainer's signing identities and credentials. Configure
-signing/notarization before distributing outside your own development machines.
+The release workflow requires the maintainer's Apple signing and notarization
+secrets; see [RELEASING.md](RELEASING.md). Local packaging without those
+credentials is still useful for development, but it will not produce a
+distribution-trusted macOS installer.
 
 ## The interface
 

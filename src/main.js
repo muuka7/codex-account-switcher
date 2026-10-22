@@ -8,6 +8,7 @@ const { pathToFileURL } = require('node:url');
 const { ensureFileCredentialStore } = require('./codex-config');
 const { readRateLimits } = require('./codex-app-server');
 const { publishState } = require('./state-events');
+const { createAutoUpdater } = require('./auto-updater');
 const {
   chooseHandoff,
   normalizeHandoffJournal,
@@ -66,6 +67,7 @@ let handoffExecutionPromise = null;
 let guardedUsagePollTimer = null;
 let guardedHandoffBackgroundEnabled = false;
 let appIsQuitting = false;
+let autoUpdater;
 
 function assertSupportedPlatform() {
   if (!isMac && !isWindows) throw new Error('This hardened build currently supports macOS and Windows only.');
@@ -1406,6 +1408,13 @@ function installIpc() {
   ipcMain.handle('handoff:acknowledge', acknowledgeGuardedHandoff);
   ipcMain.handle('codex:open', () => openCodex());
   ipcMain.handle('folder:open-store', () => shell.openPath(app.getPath('userData')));
+  ipcMain.handle('update:get', () => autoUpdater?.getStatus() || { supported: isMac, enabled: false, state: 'idle', currentVersion: app.getVersion(), availableVersion: null, percent: null, checkedAt: null, error: null });
+  ipcMain.handle('update:check', () => autoUpdater?.checkForUpdates());
+  ipcMain.handle('update:download', () => autoUpdater?.downloadUpdate());
+  ipcMain.handle('update:install', () => {
+    appIsQuitting = true;
+    return autoUpdater?.installUpdate();
+  });
 }
 
 app.whenReady().then(async () => {
@@ -1421,10 +1430,18 @@ app.whenReady().then(async () => {
   installNetworkDeny();
   installIpc();
   createWindow(settings);
+  autoUpdater = createAutoUpdater({
+    supported: isMac,
+    packaged: app.isPackaged,
+    onStatus: (status) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:status', status);
+    },
+  });
   createTray();
   registerShortcuts(await getState());
   recordUsage('open').catch(() => {});
   setTimeout(() => refreshRateLimits({ confirm: false }).catch(() => {}), 600);
+  if (isMac && app.isPackaged) setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 10_000);
 });
 
 app.on('will-quit', () => {
@@ -1432,6 +1449,7 @@ app.on('will-quit', () => {
   if (rateLimitConfirmationTimer) clearTimeout(rateLimitConfirmationTimer);
   if (guardedUsagePollTimer) clearInterval(guardedUsagePollTimer);
   stopHandoffMonitor();
+  autoUpdater?.dispose();
   globalShortcut.unregisterAll();
 });
 app.on('before-quit', () => { appIsQuitting = true; });

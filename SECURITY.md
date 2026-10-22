@@ -4,6 +4,13 @@ This application is intentionally narrow: it switches the local authentication s
 
 ## Supported versions
 
+The headless Linux helper uses a separate passphrase-encrypted vault (scrypt and
+AES-256-GCM), never a plaintext fallback for inactive accounts. Its `live` command
+uses the owning daemon's private socket. Inactive refresh and switching refuse
+running Codex processes and require supervised maintenance with automatic
+reconnections disabled; process scanning alone cannot prevent an external client
+from starting between checks. See [Linux security and recovery](docs/LINUX-SERVER.md).
+
 The latest tagged release and the current `main` branch receive security fixes.
 Older release lines are not maintained unless a release note says otherwise.
 

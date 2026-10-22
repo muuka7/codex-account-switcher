@@ -37,4 +37,13 @@ contextBridge.exposeInMainWorld('codexSwitcher', Object.freeze({
   },
   openCodex: () => ipcRenderer.invoke('codex:open'),
   openStoreFolder: () => ipcRenderer.invoke('folder:open-store'),
+  getUpdateStatus: () => ipcRenderer.invoke('update:get'),
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  onUpdateStatus: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('update:status', listener);
+    return () => ipcRenderer.removeListener('update:status', listener);
+  },
 }));

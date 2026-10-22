@@ -443,6 +443,7 @@ kbd {
 .setting-copy strong { font-size: var(--t-md); font-weight: 600; }
 .setting-copy p { color: var(--ink-3); font-size: var(--t-sm); }
 .setting-control { flex: 0 0 auto; }
+.update-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); }
 .setting.column { align-items: stretch; flex-direction: column; gap: var(--s3); }
 
 .handoff-contract {
