@@ -18,6 +18,11 @@ large speculative one.
 
 ## Required checks
 
+CI runs for pull requests and pushes to `main`; branch pushes do not duplicate
+PR runs. Jobs restore shared npm downloads, but only successful `main` CI jobs
+save caches. Release jobs restore without saving tag-specific copies. Closing
+a PR removes its merge-ref caches automatically.
+
 Run these from the repository root:
 
 ```bash
