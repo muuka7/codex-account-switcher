@@ -1,0 +1,24 @@
+name: Clean closed PR caches
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      # This privileged event uses only the base workflow. Never check out or run PR code here.
+      - name: Delete the closed PR's merge-ref caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || exit 1
+          gh cache delete --repo "$GITHUB_REPOSITORY" --all \
+            --ref "refs/pull/$PR_NUMBER/merge" --succeed-on-no-caches

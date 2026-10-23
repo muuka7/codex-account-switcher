@@ -2,11 +2,15 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
@@ -15,10 +19,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
+      - uses: ./.github/actions/setup-node-cache
+        id: node-cache
       - run: npm ci
       - run: npm run lint
       - run: npm test
@@ -27,6 +29,12 @@ jobs:
       - run: npm audit --prefix server --audit-level=moderate
       - name: Check shell scripts
         run: for script in scripts/*.sh; do bash -n "$script"; done
+      - name: Save shared npm downloads from main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.node-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.node-cache.outputs.cache-path }}
+          key: ${{ steps.node-cache.outputs.cache-key }}
 
   package-smoke:
     name: Package smoke (${{ matrix.os }})
@@ -39,10 +47,8 @@ jobs:
         os: [macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
+      - uses: ./.github/actions/setup-node-cache
+        id: node-cache
       - run: npm ci
       - name: Build ad-hoc macOS installers for validation
         if: runner.os == 'macOS'
@@ -58,3 +64,9 @@ jobs:
       - name: Verify Windows artifact
         if: runner.os == 'Windows'
         run: npm run verify:release -- release win --packaged
+      - name: Save shared npm downloads from main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.node-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.node-cache.outputs.cache-path }}
+          key: ${{ steps.node-cache.outputs.cache-key }}

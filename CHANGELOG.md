@@ -4,6 +4,9 @@ Notable changes to Codex Account Switcher. Dates are ISO-8601.
 
 ## Unreleased
 
+- Avoided duplicate branch/PR CI runs, limited dependency-cache saves to `main`,
+  and added automatic cleanup for closed pull-request caches.
+
 - Added local Keychain-backed macOS release setup/preflight and automatic
   publication after independent macOS and Windows verification. Release assets
   use drafts directly, avoiding Actions installer artifact storage and Apple
