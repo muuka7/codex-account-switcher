@@ -1,8 +1,9 @@
 # Public readiness: 0.2.2 candidate
 
 Status on 23 October 2026: source findings addressed; both native packaging smoke
-checks passed. The first signed distribution remains a separate verification gate. The repository
-has not been made public and no new release has been published.
+checks passed. The first signed distribution remains a separate verification
+gate. Visibility and GitHub protections are managed separately from publishing
+installers; no signed candidate release has been published.
 
 ## Fixed in the candidate
 
@@ -69,17 +70,19 @@ and sufficient build space on the signing Mac.
    It refuses private repos and never changes visibility. It enables private
    vulnerability reporting, secret scanning/push protection, security updates,
    and main protection requiring PRs, current checks and resolved conversations.
-   It permits a solo maintainer to merge a checked PR without a separate
-   approving reviewer; increase that count when another maintainer is available.
+   It requires one approving reviewer, including for administrator-authored PRs.
+   The owner has confirmed that the existing write collaborator is legitimate.
+   A future solo-maintainer setup can explicitly use `REQUIRED_APPROVALS=0`.
 5. Verify these settings and the first public CodeQL/PR checks in GitHub.
-   Public-only settings cannot be verified in the current private Free repo.
+   Public-only settings must be applied and read back after changing visibility.
 
 ## Before distributing the next macOS release
 
 Run the local setup and preflight in RELEASING.md. A valid Developer ID identity
 for team `XV69GQQN2L` is available on the maintainer's Mac. The configured
-`codex-account-switcher-notary` profile is not yet usable, and the signing volume
-has less than the 8 GiB preflight minimum. No Apple GitHub Secrets are required.
+`codex-account-switcher-notary` profile has been enrolled and verified. Build
+space remains below the 8 GiB preflight minimum; the owner has deferred builds.
+No Apple GitHub Secrets are required.
 Use `npm run release:mac` only from the matching clean, pushed source. Verify
 Developer ID signatures, notarization/stapling, downloaded asset
 checksums, and a real update from a previously signed build. Existing v0.2.1 and

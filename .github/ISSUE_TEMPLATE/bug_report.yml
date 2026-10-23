@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a reproducible problem with the switcher.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a security vulnerability, use the private reporting link on the Security tab.
+        Never include auth.json, tokens, passwords, vault files, or screenshots containing account data.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and architecture
+      placeholder: For example, macOS on Apple Silicon
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Use illustrative account names and redact personal information.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
