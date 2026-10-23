@@ -15,7 +15,10 @@
     "test": "node --test test/*.test.js",
     "pack:mac": "electron-builder --mac dmg zip --x64 --arm64 --publish never",
     "pack:win": "electron-builder --win nsis --x64 --publish never",
-    "verify:release": "node scripts/verify-release.js"
+    "verify:release": "node scripts/verify-release.js",
+    "release:setup": "node scripts/local-release.js setup",
+    "release:doctor": "node scripts/local-release.js doctor",
+    "release:mac": "node scripts/local-release.js release"
   },
   "devDependencies": {
     "@electron/fuses": "1.8.0",

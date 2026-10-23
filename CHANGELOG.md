@@ -4,6 +4,11 @@ Notable changes to Codex Account Switcher. Dates are ISO-8601.
 
 ## Unreleased
 
+- Added local Keychain-backed macOS release setup/preflight and automatic
+  publication after independent macOS and Windows verification. Release assets
+  use drafts directly, avoiding Actions installer artifact storage and Apple
+  signing secrets on GitHub.
+
 - Prepared the 0.2.2 public candidate: reject mismatched or incomplete desktop
   identities before replacing saved credentials, and prevent concurrent desktop
   instances from writing the same vault.

@@ -1,102 +1,137 @@
 # Releasing
 
-Releases are built by GitHub Actions, not on a developer machine. macOS signing,
-notarization, and packaging run on macOS, while Windows packaging runs on its
-native runner. The resulting artifacts are collected into one GitHub Release.
+macOS releases are signed and notarized on the maintainer's Mac using its
+Keychain. GitHub Actions builds Windows, independently verifies the uploaded
+macOS installers, and **automatically publishes after all verification passes**.
+Apple private keys and notarization passwords do not need GitHub Secrets.
+There is no self-hosted runner with access to this Mac.
+
+## One-time setup on the signing Mac
+
+Use Node.js 24 (`.nvmrc`) and authenticate the GitHub CLI with repository write
+and Actions workflow access. The Mac needs a valid Developer ID Application
+identity for the Apple team in `.github/release-policy.json` and at least 8 GiB
+of free working space. This is a preflight minimum; large dependency downloads
+may require additional space.
+
+```bash
+npm run release:setup
+```
+
+This selects the matching local signing identity and writes only non-secret
+configuration to `~/.config/codex-account-switcher/mac-release.json` (mode 0600).
+The default notarization profile is `codex-account-switcher-notary`. Enroll it
+in a local terminal using Apple's interactive credential prompts:
+
+```bash
+xcrun notarytool store-credentials codex-account-switcher-notary --team-id XV69GQQN2L
+```
+
+Enter your Apple ID and an Apple app-specific password in Apple's prompt.
+Do not send passwords in chat, pass them in command arguments, commit them, or
+export the signing private key. Apple validates and saves the notarization
+credentials in Keychain. An existing API-key-backed Keychain profile also works;
+the release scripts only need the profile name. Check the complete setup:
+
+```bash
+npm run release:doctor
+```
+
+To use an existing profile or another working volume:
+
+```bash
+npm run release:setup -- --profile YOUR_PROFILE --output /Volumes/Builds/switcher-releases
+```
+
+If the profile lives in a specific Keychain, add `--keychain /absolute/path`.
+Build outputs, downloads and temporary extraction files use the chosen working
+volume. `npm ci` still installs dependencies in the source checkout, so that
+volume also needs enough space for `node_modules`.
 
 ## Cutting a release
 
-1. Make sure `main`-bound work is merged and the tree is clean.
-2. Set the version in `package.json`. The tag and that version should match.
-3. Move the relevant `CHANGELOG.md` entries out of **Unreleased** into a
-   section named for the version.
-4. Commit, then tag and push:
+1. Merge the candidate into `main` and verify CI is green.
+2. Update the version in `package.json` and `package-lock.json`, and move the
+   relevant `CHANGELOG.md` entries into a versioned section. Commit and push.
+3. On the signing Mac, use a clean checkout of that exact pushed `main` commit:
 
    ```bash
-   git tag v0.2.2
-   git push origin v0.2.2
+   npm run release:mac
    ```
 
-Pushing a `v*` tag starts the workflow. It requires a matching package version,
-syntax checks, behavioral tests and a clean dependency audit. It packages both
-platforms, verifies macOS signing/notarization, checks ZIP metadata hashes, and
-uploads a draft. It downloads that draft and verifies every checksum before
-publishing a release named after the tag with these assets:
+This command checks Keychain/GitHub access and disk space, installs locked
+dependencies, runs syntax checks, behavioral tests and both dependency audits,
+then builds Intel and Apple Silicon DMGs and ZIPs. It checks the bundled Codex
+runtimes, update metadata hashes, Developer ID signatures, expected Apple team,
+stapled notarization tickets and Gatekeeper assessment. Each architecture's DMG
+and ZIP must contain the same signed app.
 
-| Asset | Platform |
+Only after those checks does it create/push the matching version tag, upload a
+draft with macOS assets and a source/hash receipt, and dispatch the **Release**
+workflow. Invoking this command authorizes automatic publication when the
+workflow passes; there is no further manual publication step.
+
+GitHub builds and tests the Windows installer. A separate hosted Mac verifies
+the uploaded macOS signatures and notarization without Apple credentials. Each
+job records exactly which assets it verified. The publish job requires both
+records to match the tag's source commit and the current workflow run, uploads
+checksums, downloads everything again, and checks the files before publication.
+Any failure leaves the release unpublished for investigation.
+
+| Asset | Purpose |
 | --- | --- |
 | `CodexAccountSwitcher-<version>-arm64.dmg` | macOS, Apple Silicon |
 | `CodexAccountSwitcher-<version>-x64.dmg` | macOS, Intel |
-| `CodexAccountSwitcher-<version>-arm64.zip` | macOS auto-update payload |
-| `CodexAccountSwitcher-<version>-x64.zip` | macOS auto-update payload |
-| `latest-mac.yml` | macOS auto-update metadata |
+| `CodexAccountSwitcher-<version>-arm64.zip` | Apple Silicon update payload |
+| `CodexAccountSwitcher-<version>-x64.zip` | Intel update payload |
+| `latest-mac.yml` | macOS update metadata |
 | `CodexAccountSwitcher-Setup-<version>-x64.exe` | Windows 10/11, 64-bit |
-| `SHA256SUMS.txt` | Checksums for the above |
+| `*-verification.json` | Source and asset verification records |
+| `SHA256SUMS.txt` | Checksums for installers and verification records |
 
-To rebuild an existing tag without moving it, run the **Release** workflow
-manually from the Actions tab and give it the tag name. Delete the existing
-release first, or `gh release create` will refuse to overwrite it. A failed
-upload/verification can leave a draft for investigation; do not mark it public
-manually without repeating validation. Temporary Actions installer copies are
-deleted only after verified publication, with one-day retention as a fallback.
+Installers move through **draft Release assets**, not Actions artifact uploads.
+No installer artifact copies consume the Actions artifact-storage allowance.
+The Windows installer remains unsigned and updates manually. The existing
+v0.2.1 and older macOS installers are unsigned: install the first signed version
+manually before relying on subsequent signed updates.
+
+## Recovering from a failed attempt
+
+The local command refuses existing output folders and remote tags, and never
+erases a failed build. Inspect the error and retain the files for diagnosis.
+If the tag and matching draft were uploaded successfully, rerun the **Release**
+workflow from `main`, supplying that tag. All platform verification is repeated;
+stale verification records from earlier runs cannot publish the release.
+
+If upload failed before a matching draft was created, recover that draft only
+from the verified local output and its macOS receipt, or bump the version and
+start a fresh attempt. Do not manually publish an incomplete draft. Published
+releases are never overwritten by these scripts; fixes require a new version.
 
 ## Public-repository gate
 
-Before changing the repository visibility:
+Before changing repository visibility:
 
-1. Merge the release candidate into `main`; the current default branch must
-   contain the application, documentation, CI, and security policy.
-2. Do not use the existing `v0.1.0` tag as the first public release: it
-   predates the current Electron dependency hardening. Cut a new version from
-   the merged `main` branch after validation, and clearly mark any older
-   release assets as superseded.
-3. Confirm the clean-tree checks in `CONTRIBUTING.md` and review the complete
-   commit history for credentials or private data.
-4. Enable branch protection on `main` after the repository is public. Require
-   pull requests and passing CI before merging; do not allow direct pushes for
-   routine changes.
-5. Enable Dependabot security updates, secret scanning, and code scanning in
-   the repository settings, then verify that the first scans complete.
-6. Run `bash scripts/configure-public-repo.sh` after changing visibility to
-   apply private reporting, secret protection, dependency security updates and
-   required PR/CI checks. Verify the first public CodeQL and native packaging
-   runs. The script intentionally refuses to change repository visibility.
-7. Keep Windows signing status clearly labeled until Windows code signing is
-   configured. macOS signing and notarization are required for distribution.
+1. Confirm the exact candidate commit has green validation and both native
+   packaging smoke jobs. Do not use the old `v0.1.0` tag as a public candidate.
+2. Review the complete history, tags, assets and workflow logs for private data.
+   Generalizing current docs does not remove original deployment aliases,
+   usernames and paths from older commits. Decide whether that non-secret
+   metadata is acceptable before publication.
+3. Change visibility only after the maintainer has made that decision.
+4. Run `bash scripts/configure-public-repo.sh` as a repository administrator.
+   It refuses private repositories and does not change visibility. It enables
+   private reporting, secret scanning/push protection, security updates, and
+   main protection requiring PRs and passing checks.
+5. Verify the settings and the first public CodeQL and PR checks.
+6. Complete a real signed distribution and update test before advertising
+   signed releases or a verified update path.
 
-Changing visibility does not rewrite Git history. Treat every reachable commit,
-tag, branch, release asset, and workflow log as public after the change.
+See [Public readiness](docs/PUBLIC-READINESS.md) for evidence and remaining gates.
 
-## Apple signing and notarization
+## Packaging smoke tests
 
-The macOS job expects these GitHub Actions secrets:
-
-- `MAC_CSC_LINK`: base64-encoded Developer ID Application `.p12` certificate.
-- `MAC_CSC_KEY_PASSWORD`: password used when exporting that certificate.
-- `APPLE_API_KEY_BASE64`: base64-encoded App Store Connect API `.p8` key.
-- `APPLE_API_KEY_ID`: App Store Connect API key ID.
-- `APPLE_API_ISSUER`: App Store Connect issuer ID.
-
-Export the certificate from Keychain Access and encode it without committing
-either file:
-
-```bash
-base64 -i "Developer ID Application.p12" | pbcopy
-base64 -i "AuthKey_KEYID.p8" | pbcopy
-```
-
-The workflow materializes the API key only on the ephemeral macOS runner,
-passes the certificate to electron-builder, and fails before packaging if any
-required secret is missing. The app's updater uses the signed ZIP artifacts and
-`latest-mac.yml` attached to the GitHub Release.
-
-The existing unsigned releases cannot self-update safely. Install a newly
-signed and notarized release once; subsequent tagged releases can update it.
-
-## Verifying a build locally
-
-Packaging can be exercised without cutting a release. Each command only builds
-its own platform:
+These exercise packaging without tagging or publishing:
 
 ```bash
 npm run pack:win
@@ -104,14 +139,9 @@ npm run pack:win
 
 ```bash
 npm run pack:mac -- -c.mac.forceCodeSigning=false -c.mac.identity=- -c.mac.notarize=false
-npm run verify:release -- release mac
+npm run verify:release -- release mac --packaged
 ```
 
-Output lands in `release/`, which is gitignored. The ad-hoc macOS output above
-is a packaging smoke test, not a signed/notarized release. Normal `pack:mac`
-requires signing and includes both DMG and ZIP targets. Do not attach smoke
-artifacts to a public release.
-
-Existing v0.2.1 and older installers are unsigned. Signing is a requirement for
-the next release, not a claim about those old downloads. See
-[Public readiness](docs/PUBLIC-READINESS.md).
+Smoke output is gitignored and is not a distribution-trusted installer. Normal
+`pack:mac` requires signing and notarization. Use `release:mac` for the full
+verified publication flow.

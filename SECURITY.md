@@ -56,6 +56,12 @@ requires a compatible code signature. This trust depends on the maintainer's
 GitHub account and Apple signing identity. Checksums alone are not independent
 proof of authorship. The repository does not embed a GitHub access token.
 
+macOS release signing and notarization use the maintainer's local Keychain.
+GitHub builds Windows and checks both uploaded macOS architectures against the
+expected Apple team before automatic publication. Source/hash receipts bind the
+assets to the tagged commit and verification run. Apple private keys and
+notarization credentials are not installed on GitHub runners.
+
 Existing v0.2.1 and earlier release assets are unsigned and cannot bootstrap a
 trusted auto-update chain. The first signed/notarized version must be installed
 manually, after verifying its published signing status. Windows updates remain

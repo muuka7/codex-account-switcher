@@ -52,8 +52,8 @@ Prebuilt installers for both platforms are attached to each entry on the
 Check what you downloaded against `SHA256SUMS.txt` before installing.
 **Existing v0.2.1 and earlier assets are unsigned.** Signing/notarization and
 macOS auto-update are configured for the next release; they are not a claim
-about those existing downloads. The release workflow requires Apple signing
-credentials and verifies signatures, notarization and downloaded assets before
+about those existing downloads. macOS release builds use the maintainer's local
+Keychain; GitHub verifies signatures, notarization and downloaded assets before
 publication. Until that verified release exists, use the source for development
 or follow the signing status recorded on each release.
 
@@ -94,10 +94,9 @@ The macOS build targets Intel and Apple Silicon DMGs plus the ZIP payloads used
 by auto-update. The Windows build targets an x64 NSIS installer. Electron Fuse
 hardening is applied to both packaged executables.
 
-Each command only builds for the platform it runs on — a DMG cannot be produced on Windows. Releases are therefore built by GitHub Actions on both a macOS and a Windows runner, and pushing a `v*` tag publishes the installers to the Releases page. See `RELEASING.md`.
+Each command builds for its native platform. Releases use the maintainer's Mac for signed macOS builds and GitHub Actions for Windows. `npm run release:mac` uploads verified macOS assets and starts the workflow; publication is automatic after both platforms pass verification. See [RELEASING.md](RELEASING.md).
 
-The release workflow requires the maintainer's Apple signing and notarization
-secrets; see [RELEASING.md](RELEASING.md). For an ad-hoc local packaging check, run `npm run pack:mac -- -c.mac.forceCodeSigning=false -c.mac.identity=- -c.mac.notarize=false`. That output is for validation only; it is not a distribution-trusted installer.
+Apple signing and notarization credentials stay in the local Keychain; no Apple GitHub Secrets are required. Run `npm run release:setup` and `npm run release:doctor` on the signing Mac. For an ad-hoc local packaging check, run `npm run pack:mac -- -c.mac.forceCodeSigning=false -c.mac.identity=- -c.mac.notarize=false`. That output is for validation only; it is not a distribution-trusted installer.
 
 ## The interface
 

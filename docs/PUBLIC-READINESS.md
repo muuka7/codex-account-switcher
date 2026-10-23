@@ -1,6 +1,6 @@
 # Public readiness: 0.2.2 candidate
 
-Status on 22 October 2026: source findings addressed; both native packaging smoke
+Status on 23 October 2026: source findings addressed; both native packaging smoke
 checks passed. The first signed distribution remains a separate verification gate. The repository
 has not been made public and no new release has been published.
 
@@ -18,9 +18,11 @@ has not been made public and no new release has been published.
   correct Codex runtime for each target; downloads match committed lockfile
   integrity, and the upstream Apache license is included. Release validation
   requires the bundled runtimes, both ZIPs and correct metadata hashes.
-- The release workflow requires actual signing/notarization, uploads a draft,
-  downloads and checks the assets, and only then publishes. Temporary Actions
-  copies are deleted after publication with one-day retention as a fallback.
+- macOS releases build locally with Keychain credentials. GitHub builds Windows
+  and independently checks the uploaded macOS signatures and notarization.
+  Publication is automatic after source/hash receipts and downloaded checksums
+  pass. Draft Release assets avoid Actions installer artifact storage; Apple
+  signing keys and notarization credentials stay off GitHub.
 - Update checks never download automatically. Download and installation each
   require explicit action, and normal quitting does not install an update.
 - Current docs use illustrative host aliases and paths; packaged docs are
@@ -31,9 +33,12 @@ has not been made public and no new release has been published.
 
 ## Evidence
 
-Local validation uses Node.js 24: all 43 behavioral tests pass, syntax and shell
+Local validation uses Node.js 24: all 50 behavioral tests pass, syntax and shell
 checks pass, actionlint passes, and both npm audits report zero vulnerabilities.
-A repeated Gitleaks scan of all 52 reachable commits found no secret matches. The earlier exposure
+The seven release-pipeline tests cover modified assets, source/team/run binding,
+published-release protection and signing/notarization failure handling. They do
+not substitute for the pending signed distribution run.
+A repeated Gitleaks scan of 53 reachable commits found no secret matches. The earlier exposure
 review found no secret matches in the then-current 50 commits or retained logs
 from 132 Actions runs; those findings are scoped to that snapshot.
 
@@ -47,7 +52,8 @@ A later documentation/release-allowlist change does not alter those binaries.
 The local macOS attempt was blocked by insufficient disk space (ENOSPC);
 GitHub's native build supplied the missing packaging evidence. These ad-hoc
 smoke builds are not Developer ID signed or notarized and were not published.
-A signed distribution/update test still requires properly provisioned runners.
+A signed distribution/update test still requires local notarization credentials
+and sufficient build space on the signing Mac.
 
 ## At the visibility change
 
@@ -70,9 +76,12 @@ A signed distribution/update test still requires properly provisioned runners.
 
 ## Before distributing the next macOS release
 
-Configure the five Apple secrets listed in RELEASING.md. None were configured
-when this candidate was prepared. Run the release workflow only for the matching
-new tag. Verify Developer ID signatures, notarization/stapling, downloaded asset
+Run the local setup and preflight in RELEASING.md. A valid Developer ID identity
+for team `XV69GQQN2L` is available on the maintainer's Mac. The configured
+`codex-account-switcher-notary` profile is not yet usable, and the signing volume
+has less than the 8 GiB preflight minimum. No Apple GitHub Secrets are required.
+Use `npm run release:mac` only from the matching clean, pushed source. Verify
+Developer ID signatures, notarization/stapling, downloaded asset
 checksums, and a real update from a previously signed build. Existing v0.2.1 and
 older installers are unsigned and cannot establish that update trust chain.
 Windows remains explicitly unsigned with manual updates.
