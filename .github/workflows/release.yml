@@ -34,10 +34,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag }}
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      # Older release tags may predate the helper; load tooling from this workflow's commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version-file: .nvmrc
-          cache: npm
+          ref: ${{ github.workflow_sha }}
+          path: .release-workflow
+          sparse-checkout: .github/actions/setup-node-cache
+          persist-credentials: false
+      - uses: ./.release-workflow/.github/actions/setup-node-cache
       - run: npm ci
       - name: Download and validate the matching macOS draft
         env:
@@ -64,10 +68,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag }}
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version-file: .nvmrc
-          cache: npm
+          ref: ${{ github.workflow_sha }}
+          path: .release-workflow
+          sparse-checkout: .github/actions/setup-node-cache
+          persist-credentials: false
+      - uses: ./.release-workflow/.github/actions/setup-node-cache
       - run: npm ci --ignore-scripts
       - name: Verify draft receipts and downloaded update hashes
         env:
@@ -95,10 +102,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag }}
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version-file: .nvmrc
-          cache: npm
+          ref: ${{ github.workflow_sha }}
+          path: .release-workflow
+          sparse-checkout: .github/actions/setup-node-cache
+          persist-credentials: false
+      - uses: ./.release-workflow/.github/actions/setup-node-cache
       - run: npm ci --ignore-scripts
       - name: Verify both platform receipts and produce checksums
         env:

@@ -123,9 +123,10 @@ Before changing repository visibility:
    It refuses private repositories and does not change visibility. It enables
    private reporting, secret scanning/push protection, dependency alerts and
    security updates, GitHub-owned/SHA-pinned Actions, external-workflow approval,
-   and main protection requiring PRs, one approval and passing checks. The check
-   sources are bound to GitHub Actions. For a future solo-maintainer repository,
-   `REQUIRED_APPROVALS=0` explicitly permits checked PRs without another reviewer.
+   and main protection requiring PRs and passing checks. The check sources are
+   bound to GitHub Actions. The default is zero required approvals so the owner
+   can merge checked PRs independently. Set `REQUIRED_APPROVALS=1` to require
+   another reviewer when desired.
 5. Verify the settings and the first public CodeQL and PR checks.
 6. Complete a real signed distribution and update test before advertising
    signed releases or a verified update path.

@@ -1,0 +1,33 @@
+name: Set up Node and restore npm cache
+description: Restore shared npm downloads without saving branch or PR cache copies.
+outputs:
+  cache-path:
+    description: npm's download cache directory.
+    value: ${{ steps.cache-directory.outputs.path }}
+  cache-key:
+    description: The OS, architecture and lockfile cache key.
+    value: ${{ steps.npm-cache.outputs.cache-primary-key }}
+  cache-hit:
+    description: Whether the primary cache key was restored exactly.
+    value: ${{ steps.npm-cache.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .nvmrc
+        package-manager-cache: false
+    - name: Locate npm cache
+      id: cache-directory
+      shell: bash
+      run: |
+        echo "path=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+        echo "arch=$(node -p 'process.arch')" >> "$GITHUB_OUTPUT"
+    - name: Restore npm downloads
+      id: npm-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache-directory.outputs.path }}
+        key: node-cache-${{ runner.os }}-${{ steps.cache-directory.outputs.arch }}-npm-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          node-cache-${{ runner.os }}-${{ steps.cache-directory.outputs.arch }}-npm-

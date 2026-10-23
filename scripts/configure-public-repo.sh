@@ -2,7 +2,7 @@
 # Run after an explicitly authorized visibility change. This script never changes visibility.
 set -euo pipefail
 repo=${1:-muuka7/codex-account-switcher}
-approvals=${REQUIRED_APPROVALS:-1}
+approvals=${REQUIRED_APPROVALS:-0}
 [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo 'Expected owner/repository.' >&2; exit 1; }
 [[ "$approvals" =~ ^[0-6]$ ]] || { echo 'REQUIRED_APPROVALS must be between 0 and 6.' >&2; exit 1; }
 test "$(gh api "repos/$repo" --jq .visibility)" = public || {

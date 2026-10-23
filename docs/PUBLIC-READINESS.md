@@ -70,9 +70,10 @@ and sufficient build space on the signing Mac.
    It refuses private repos and never changes visibility. It enables private
    vulnerability reporting, secret scanning/push protection, security updates,
    and main protection requiring PRs, current checks and resolved conversations.
-   It requires one approving reviewer, including for administrator-authored PRs.
-   The owner has confirmed that the existing write collaborator is legitimate.
-   A future solo-maintainer setup can explicitly use `REQUIRED_APPROVALS=0`.
+   The owner selected zero required approvals to permit merging checked PRs
+   independently. Required PRs, passing checks and administrator enforcement
+   remain enabled. The existing write collaborator retains legitimate access.
+   Set `REQUIRED_APPROVALS=1` to require another reviewer when desired.
 5. Verify these settings and the first public CodeQL/PR checks in GitHub.
    Public-only settings must be applied and read back after changing visibility.
 
