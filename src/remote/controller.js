@@ -15,6 +15,7 @@ class RemoteController {
     this.app = app; this.safeStorage = safeStorage; this.notify = notify;
     this.servers = servers; this.transport = transport; this.operations = new Map();
     this.keyPromises = new Map();
+    this.deviceCodes = new Map();
     this.keysRoot = path.join(app.getPath('userData'), 'server-keys');
   }
   async list() { return this.servers.list(); }
@@ -60,7 +61,7 @@ class RemoteController {
     if (bytes) {
       try {
         const key = this.safeStorage.decryptString(bytes);
-        if (!/^[a-f0-9]{64}$/.test(key)) throw new Error();
+        if (typeof key !== 'string' || key.length < 12 || key.length > 1024) throw new Error();
         return key;
       } catch { throw sshError('LOCAL_KEYCHAIN', 'The protected server key could not be unlocked on this computer.'); }
     }
@@ -75,7 +76,7 @@ class RemoteController {
     const doctor = await this.doctor(host);
     const [stateResult, liveResult] = await Promise.allSettled([this.call(host, 'state'), this.call(host, 'live')]);
     let keyAvailable = false;
-    if (doctor.vaultExists) { try { await this.key(doctor); keyAvailable = true; } catch {} }
+    if (doctor.vaultExists) { try { await this.call(host, 'unlock', {}, { secret: await this.key(doctor) }); keyAvailable = true; } catch {} }
     return {
       doctor, state: stateResult.status === 'fulfilled' ? stateResult.value : null,
       stateError: stateResult.status === 'rejected' ? stateResult.reason.message : null,
@@ -89,7 +90,7 @@ class RemoteController {
     if (this.operations.has(host)) throw sshError('BUSY', 'Another operation is active on this server.');
     const controller = new AbortController(); this.operations.set(host, { method, controller });
     try { return await work(controller.signal); }
-    finally { this.operations.delete(host); }
+    finally { this.operations.delete(host); this.deviceCodes.delete(host); }
   }
   async mutate(host, method, label) {
     if (!['import', 'refresh', 'switch', 'recover', 'login', 'reauth'].includes(method)) throw sshError('ARGUMENTS', 'Unsupported server operation.');
@@ -97,14 +98,46 @@ class RemoteController {
       const doctor = await this.doctor(host);
       const secret = await this.key(doctor, { create: ['import', 'login'].includes(method) });
       await this.call(host, method, label === undefined ? {} : { label }, {
-        secret, signal, onEvent: event => this.notify({ host, method, ...event }),
+        secret, signal, onEvent: event => {
+          if (event.kind === 'device-code') this.deviceCodes.set(host, event.userCode);
+          this.notify({ host, method, ...event });
+        },
       });
       return this.snapshot(host);
     });
   }
   cancel(host) {
     this.host(host); const operation = this.operations.get(host);
-    if (operation && ['login', 'reauth', 'install'].includes(operation.method)) operation.controller.abort();
+    if (operation && ['login', 'reauth', 'install'].includes(operation.method)) { this.deviceCodes.delete(host); operation.controller.abort(); }
+  }
+  currentDeviceCode(host) {
+    this.host(host);
+    const code = this.deviceCodes.get(host), method = this.operations.get(host)?.method;
+    if (!['login', 'reauth'].includes(method) || !/^[A-Za-z0-9-]{4,32}$/.test(code || '')) throw sshError('LOGIN_CODE_UNAVAILABLE', 'There is no active sign-in code to copy.');
+    return code;
+  }
+  async unlock(host, passphrase) {
+    if (typeof passphrase !== 'string' || passphrase.length < 12 || passphrase.length > 1024) throw sshError('PASSPHRASE_REQUIRED', 'Use the existing vault passphrase of at least 12 characters.');
+    return this.exclusive(host, 'unlock', async () => {
+      this.availableEncryption();
+      const doctor = await this.doctor(host);
+      if (!doctor.vaultExists) throw sshError('NO_LOGIN', 'This server does not have a vault yet.');
+      // Verification decrypts on the server and returns public metadata only.
+      // Do not persist an unverified passphrase or mutate server credentials.
+      await this.call(host, 'unlock', {}, { secret: passphrase });
+      await privateDirectory(this.keysRoot);
+      await atomicWrite(this.keyFile(doctor.installationId), this.safeStorage.encryptString(passphrase));
+      return this.snapshot(host);
+    });
+  }
+  async copyVaultKey(host, writeClipboard) {
+    return this.exclusive(host, 'copy-key', async () => {
+      const doctor = await this.doctor(host), secret = await this.key(doctor);
+      await this.call(host, 'unlock', {}, { secret });
+      writeClipboard(secret);
+      // The IPC response must never contain the vault key.
+      return true;
+    });
   }
   dispose() { for (const [host] of this.operations) this.cancel(host); }
   async install(host) {

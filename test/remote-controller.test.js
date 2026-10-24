@@ -49,3 +49,50 @@ test('key is durable before import and a lost response reuses it without replayi
   await assert.rejects(controller.mutate('server', 'import', 'personal'), { code: 'SSH_FAILED' });
   assert.equal(await controller.key(doctor), seen); assert.equal(controller.operations.size, 0);
 });
+
+test('only the current active device-login code is available for explicit clipboard copying', async t => {
+  let finishLogin, onCode;
+  const codeReady = new Promise(resolve => { onCode = resolve; });
+  const { controller } = await setup(t, async (_host, method, _params, options) => {
+    if (method === 'doctor') return doctor;
+    if (method === 'login') {
+      options.onEvent({ kind: 'device-code', userCode: 'ABCD-1234', verificationUrl: 'https://auth.openai.com/codex/device' });
+      onCode(); await new Promise(resolve => { finishLogin = resolve; }); return { accounts: [] };
+    }
+    if (method === 'state') return { accounts: [] };
+    if (method === 'live') return {};
+  });
+  assert.throws(() => controller.currentDeviceCode('server'), { code: 'LOGIN_CODE_UNAVAILABLE' });
+  const login = controller.mutate('server', 'login', 'work'); await codeReady;
+  assert.equal(controller.currentDeviceCode('server'), 'ABCD-1234');
+  assert.throws(() => controller.currentDeviceCode('another-server'), { code: 'LOGIN_CODE_UNAVAILABLE' });
+  finishLogin(); await login;
+  assert.throws(() => controller.currentDeviceCode('server'), { code: 'LOGIN_CODE_UNAVAILABLE' });
+});
+
+test('terminal-created vaults are verified before protecting their passphrase locally', async t => {
+  const passphrase = 'synthetic terminal vault passphrase';
+  const { controller } = await setup(t, async (_host, method, _params, options) => {
+    if (method === 'doctor') return { ...doctor, vaultExists: true };
+    if (method === 'unlock') { if (options.secret !== passphrase) throw Object.assign(new Error('incorrect'), { code: 'VAULT_LOCKED' }); return { accounts: [] }; }
+    if (method === 'state') return { accounts: [] };
+    if (method === 'live') return {};
+  });
+  await assert.rejects(controller.unlock('server', 'an incorrect passphrase'), { code: 'VAULT_LOCKED' });
+  await assert.rejects(fs.stat(controller.keyFile(doctor.installationId)), { code: 'ENOENT' });
+  const snapshot = await controller.unlock('server', passphrase);
+  assert.equal(snapshot.keyAvailable, true); assert.ok(!JSON.stringify(snapshot).includes(passphrase));
+  assert.equal(await controller.key({ ...doctor, vaultExists: true }), passphrase);
+  assert.ok(!(await fs.readFile(controller.keyFile(doctor.installationId))).includes(Buffer.from(passphrase)));
+});
+
+test('explicit terminal-key copying writes only to the main-process callback and never the response', async t => {
+  const { controller } = await setup(t, async (_host, method) => {
+    if (method === 'doctor') return { ...doctor, vaultExists: true };
+    if (method === 'unlock') return { accounts: [] };
+  });
+  const generated = await controller.key(doctor, { create: true }); let clipboard;
+  const result = await controller.copyVaultKey('server', value => { clipboard = value; });
+  assert.equal(clipboard, generated); assert.equal(result, true);
+  assert.ok(!JSON.stringify(result).includes(generated));
+});

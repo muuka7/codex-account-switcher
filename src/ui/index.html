@@ -61,6 +61,7 @@
             <button id="remote-import" class="btn" type="button">Save current login</button>
             <button id="remote-login" class="btn btn-primary" type="button">Add account</button>
             <button id="remote-recover" class="btn" type="button" hidden>Recover transaction</button>
+            <button id="remote-terminal" class="btn" type="button" hidden>Terminal access…</button>
           </div>
           <p class="remote-copy">Saved credentials stay encrypted on this server. Switching requires a quiet server; existing Codex sessions keep their own login until reconnected.</p>
         </section>
@@ -457,11 +458,33 @@
       <div class="dialog-actions"><button id="remote-name-cancel" class="btn" type="button">Cancel</button><button id="remote-name-confirm" class="btn btn-primary" type="button">Continue</button></div>
     </section>
   </div>
+  <div id="remote-vault-dialog" class="dialog-layer" hidden>
+    <div class="backdrop" data-close></div>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="remote-vault-title">
+      <h2 id="remote-vault-title">Terminal access</h2>
+      <div id="remote-vault-export">
+        <p>To manage these same accounts from SSH, run the server helper and paste this vault key into its hidden passphrase prompt.</p>
+        <div class="notice notice-warn">This key unlocks every saved account on this server. Keep it in your password manager and out of commands, environment variables and logs.</div>
+        <div class="dialog-actions"><button id="remote-vault-copy" class="btn" type="button">Copy vault key for terminal</button></div>
+      </div>
+      <div id="remote-vault-unlock" hidden>
+        <p>Enter the passphrase used to create this server vault in the terminal. After verification, this computer protects it with operating system encryption. The server vault and current login stay unchanged.</p>
+        <div class="field"><label for="remote-vault-passphrase">Existing vault passphrase</label><input id="remote-vault-passphrase" type="password" minlength="12" maxlength="1024" autocomplete="current-password" /></div>
+        <div class="dialog-actions"><button id="remote-vault-verify" class="btn btn-primary" type="button">Unlock on this computer</button></div>
+      </div>
+      <p id="remote-vault-status" class="remote-copy" role="status" aria-live="polite"></p>
+      <div class="dialog-actions"><button id="remote-vault-done" class="btn" type="button">Done</button></div>
+    </section>
+  </div>
   <div id="remote-device-dialog" class="dialog-layer" hidden>
     <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="remote-device-title">
       <h2 id="remote-device-title">Sign in to the server account</h2>
       <p>Open the official OpenAI device sign-in page, enter this code, and choose the account you want to save.</p>
-      <code id="remote-device-code" class="device-code"></code>
+      <div class="device-code-row">
+        <code id="remote-device-code" class="device-code"></code>
+        <button id="remote-device-copy" class="btn" type="button">Copy code</button>
+      </div>
+      <p id="remote-copy-status" class="remote-copy" role="status" aria-live="polite"></p>
       <p class="remote-copy">https://auth.openai.com/codex/device</p>
       <p id="remote-device-status" role="status">Waiting for browser sign-in…</p>
       <div class="dialog-actions"><button id="remote-device-cancel" class="btn" type="button">Cancel login</button><button id="remote-device-open" class="btn btn-primary" type="button">Open sign-in page</button></div>

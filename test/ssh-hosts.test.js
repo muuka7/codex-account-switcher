@@ -1,4 +1,4 @@
-const test = process.platform === 'win32' ? require('node:test').skip : require('node:test');
+const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, safeStorage, session, globalShortcut, shell, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, session, globalShortcut, shell, clipboard, Tray, Menu, nativeImage } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
@@ -1381,7 +1381,7 @@ function installIpc() {
     catch (error) {
       // Only deliberate public errors may cross IPC. OS errors can contain
       // local paths or server output and are not renderer response fields.
-      const publicCodes = new Set(['INVALID_HOST', 'ARGUMENTS', 'SERVER_EXISTS', 'BUSY', 'LOCAL_KEYCHAIN', 'VAULT_KEY_MISSING', 'HELPER_UPDATE', 'SSH_HOST_KEY', 'SSH_AUTH', 'HELPER_MISSING', 'SSH_FAILED', 'SSH_TIMEOUT', 'CANCELLED', 'REMOTE_PROTOCOL']);
+      const publicCodes = new Set(['INVALID_HOST', 'ARGUMENTS', 'SERVER_EXISTS', 'BUSY', 'LOCAL_KEYCHAIN', 'VAULT_KEY_MISSING', 'HELPER_UPDATE', 'SSH_HOST_KEY', 'SSH_AUTH', 'HELPER_MISSING', 'SSH_FAILED', 'SSH_TIMEOUT', 'CANCELLED', 'REMOTE_PROTOCOL', 'LOGIN_CODE_UNAVAILABLE']);
       const serverError = require('./server/errors').publicError(error);
       return { ok: false, error: publicCodes.has(error.code) ? { code: error.code, message: error.message } : serverError };
     }
@@ -1393,6 +1393,9 @@ function installIpc() {
   remoteHandler('remote:install', host => remoteController.install(host));
   remoteHandler('remote:mutate', (host, method, label) => remoteController.mutate(host, method, label));
   remoteHandler('remote:cancel', host => remoteController.cancel(host));
+  remoteHandler('remote:copy-code', host => { clipboard.writeText(remoteController.currentDeviceCode(host)); return true; });
+  remoteHandler('remote:unlock', (host, passphrase) => remoteController.unlock(host, passphrase));
+  remoteHandler('remote:copy-vault-key', host => remoteController.copyVaultKey(host, value => clipboard.writeText(value)));
   remoteHandler('remote:open-login', () => shell.openExternal('https://auth.openai.com/codex/device'));
   ipcMain.handle('state:get', getState);
   ipcMain.handle('state:live', getLiveAccount);

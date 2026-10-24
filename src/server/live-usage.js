@@ -7,9 +7,15 @@ const { allBucketsFromResult } = require('../rate-limits');
 // Connect to the daemon that already owns its credentials. A new sidecar must
 // not independently refresh that same active account's token.
 async function liveUsage(codexHome, { socketPath = path.join(codexHome, 'app-server-control', 'app-server-control.sock'), timeoutMs = 15000 } = {}) {
-  const link = await fs.lstat(socketPath);
-  const resolvedPath = await fs.realpath(socketPath);
-  const stat = await fs.lstat(resolvedPath);
+  let link, resolvedPath, stat;
+  try {
+    link = await fs.lstat(socketPath);
+    resolvedPath = await fs.realpath(socketPath);
+    stat = await fs.lstat(resolvedPath);
+  } catch (error) {
+    if (['ENOENT', 'ENOTDIR'].includes(error.code)) throw fail('LIVE_USAGE_UNAVAILABLE', 'The existing Codex daemon socket is unavailable. Saved accounts are still available.');
+    throw fail('UNSAFE_SOCKET', 'The existing Codex daemon socket could not be verified.');
+  }
   if (Buffer.byteLength(resolvedPath) > (process.platform === 'darwin' ? 103 : 107)) throw fail('UNSAFE_SOCKET', 'The resolved Codex socket path exceeds the platform limit.');
   // Current Linux Codex points the home entry at a private daemon socket in
   // /tmp. Validate both owners and connect to the resolved socket directly.

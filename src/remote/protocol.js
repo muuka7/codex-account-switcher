@@ -1,7 +1,7 @@
 const { publicState, publicUsage, text } = require('../server/public-data');
 const { publicError } = require('../server/errors');
 
-const methods = new Set(['doctor', 'state', 'live', 'import', 'refresh', 'switch', 'recover', 'login', 'reauth']);
+const methods = new Set(['doctor', 'state', 'live', 'unlock', 'import', 'refresh', 'switch', 'recover', 'login', 'reauth']);
 function validateRequest(method, params, secret) {
   if (!methods.has(method) || !params || typeof params !== 'object' || Array.isArray(params) || Object.keys(params).some(k => k !== 'label')) throw new Error('Invalid remote request.');
   if (['import', 'switch', 'login', 'reauth'].includes(method) && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(params.label || '')) throw new Error('Use a short account label containing letters, digits, dots, underscores or hyphens.');

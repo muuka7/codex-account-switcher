@@ -7,6 +7,13 @@ const http = require('node:http');
 const { WebSocketServer } = require('ws');
 const { liveUsage } = require('../src/server/live-usage');
 
+test('a stopped daemon reports live usage unavailable without starting a replacement', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'live-stopped-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await assert.rejects(liveUsage(dir), { code: 'LIVE_USAGE_UNAVAILABLE' });
+  assert.deepEqual(await fs.readdir(dir), []);
+});
+
 test('live usage uses the existing socket and exposes only identity and sanitized quotas', async t => {
   // Signed builds place TMPDIR deep inside the chosen working volume. Unix
   // socket names have a small platform byte limit, unlike ordinary files.

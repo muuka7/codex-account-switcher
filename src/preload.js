@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('codexSwitcher', Object.freeze({
     install: host => remoteInvoke('remote:install', host),
     mutate: (host, method, label) => remoteInvoke('remote:mutate', host, method, label),
     cancel: host => remoteInvoke('remote:cancel', host),
+    copyCode: host => remoteInvoke('remote:copy-code', host),
+    unlock: (host, passphrase) => remoteInvoke('remote:unlock', host, passphrase),
+    copyVaultKey: host => remoteInvoke('remote:copy-vault-key', host),
     openLogin: () => remoteInvoke('remote:open-login'),
     onEvent: callback => {
       const listener = (_event, event) => callback(event);

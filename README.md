@@ -18,7 +18,7 @@ The 0.3.0 development desktop adds **Accounts on** and **Servers…** controls f
 SSH discovery, manual server setup, helper installation, live quota/reset
 readings, account enrollment through official browser device login, and
 supervised switching. See the Linux guide for quiet-server requirements and
-desktop-versus-terminal vault key limitations.
+shared desktop/terminal vault access and recovery requirements.
 
 The desktop supports macOS and Windows. It expects Codex authentication at `~/.codex/auth.json` / `%USERPROFILE%\.codex\auth.json` (or `$CODEX_HOME/auth.json`). The official Codex runtime remains responsible for authentication.
 

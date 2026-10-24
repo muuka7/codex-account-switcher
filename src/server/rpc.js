@@ -5,7 +5,7 @@ const { fail } = require('./security');
 
 const PROTOCOL = 1;
 const READ = new Set(['doctor', 'state', 'live']);
-const MUTATE = new Set(['import', 'refresh', 'switch', 'recover', 'login', 'reauth']);
+const MUTATE = new Set(['unlock', 'import', 'refresh', 'switch', 'recover', 'login', 'reauth']);
 
 async function dispatch(request, { manager = new ServerAccounts(), event = () => {}, signal } = {}) {
   if (!request || request.version !== PROTOCOL) throw fail('PROTOCOL_MISMATCH', 'Unsupported helper protocol.');
@@ -17,6 +17,7 @@ async function dispatch(request, { manager = new ServerAccounts(), event = () =>
   switch (request.method) {
     case 'doctor': return { ...await manager.doctor(), protocol: PROTOCOL };
     case 'state': return publicState(await manager.cached());
+    case 'unlock': await manager.load(request.secret); return publicState(await manager.cached());
     case 'live': {
       const result = await manager.live();
       return { ...publicUsage(result), account: result.account ? { id: text(result.account.id, 200), email: text(result.account.email), planType: text(result.account.planType, 80) } : null, scope: 'existing-daemon', note: 'Other Codex processes may use a different account.' };

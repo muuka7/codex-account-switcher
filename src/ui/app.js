@@ -271,6 +271,7 @@ function dismissLayer(node) {
   else if (node === el('confirm-dialog')) settleConfirm(false);
   else if (node === el('add-dialog')) closeAddDialog();
   else if (node === el('save-dialog')) closeLayer(node);
+  else if (node === el('remote-vault-dialog')) { el('remote-vault-passphrase').value = ''; closeLayer(node); }
   else if (node === el('shortcut-dialog')) closeLayer(node);
   else closeLayer(node);
 }

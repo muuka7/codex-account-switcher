@@ -50,6 +50,8 @@ jobs:
       - uses: ./.github/actions/setup-node-cache
         id: node-cache
       - run: npm ci
+      - name: Verify desktop SSH configuration and transport
+        run: node --test test/ssh-hosts.test.js test/remote-controller.test.js test/ssh-client.test.js
       - name: Build ad-hoc macOS installers for validation
         if: runner.os == 'macOS'
         run: npm run pack:mac -- -c.mac.forceCodeSigning=false -c.mac.identity=- -c.mac.notarize=false

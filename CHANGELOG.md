@@ -8,6 +8,11 @@ Notable changes to Codex Account Switcher. Dates are ISO-8601.
   windows, saved server account controls and official device-code login to the
   desktop. Server keys remain protected by the operating system; tokens remain
   on the server.
+- Added explicit click-to-copy for the active device sign-in code, with copied
+  feedback and no clipboard reads. Fixed SSH include discovery on Windows and
+  added native-platform checks for SSH configuration and transport.
+- Added verified unlocking of terminal-created vaults and explicit terminal
+  key copying, so the desktop and CLI can manage the same saved accounts.
 - Added a bounded, versioned SSH protocol and a source-only packaged helper
   archive with pinned dependencies and release integrity checks.
 - Preserve credentials rotated by unsuccessful usage requests, retain private

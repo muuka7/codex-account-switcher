@@ -1,6 +1,7 @@
 /* SSH server view. Only public metadata crosses the preload bridge. */
 let remoteHost = '', remoteSnapshot = null, remoteBusy = false, remoteLoadId = 0;
 let serverInventory = { hosts: [], warnings: [] }, remoteNameAction = 'import', deviceHost = null;
+let copyCodeTimer;
 const remoteApi = api.remote;
 
 function remoteNode(tag, className, text) {
@@ -34,12 +35,13 @@ function renderRemote() {
   el('remote-title').textContent = remoteHost;
   el('account-location').disabled = remoteBusy;
   el('manage-servers').disabled = remoteBusy;
-  for (const id of ['remote-reconnect', 'remote-setup', 'remote-import', 'remote-login', 'remote-recover', 'remote-refresh-saved']) el(id).disabled = remoteBusy;
+  for (const id of ['remote-reconnect', 'remote-setup', 'remote-import', 'remote-login', 'remote-recover', 'remote-refresh-saved', 'remote-terminal']) el(id).disabled = remoteBusy;
   if (!doctor) {
     el('remote-status').textContent = remoteBusy ? 'Connecting over SSH…' : 'Connect or set up the Linux helper to read server accounts.';
     el('remote-live').hidden = true; el('remote-maintenance').hidden = true;
     el('remote-import').disabled = true; el('remote-login').disabled = true;
     el('remote-refresh-saved').disabled = true; el('remote-recover').hidden = true;
+    el('remote-terminal').hidden = true;
     el('remote-accounts').replaceChildren(); el('remote-empty').hidden = true;
     return;
   }
@@ -54,13 +56,15 @@ function renderRemote() {
   const blockers = [];
   if (doctor.running.length) blockers.push(`${doctor.running.length} Codex processes are running. Finish work and disconnect affected clients before refreshing saved accounts or switching. Live usage and adding a new account remain available.`);
   if (!doctor.fileStoreReady) blockers.push('Before switching, set cli_auth_credentials_store = "file" at the top level of the server’s ~/.codex/config.toml.');
-  if (doctor.vaultExists && !snapshot.keyAvailable) blockers.push('This computer cannot unlock this server vault. Its protected key belongs to the computer or terminal that created it.');
+  if (doctor.vaultExists && !snapshot.keyAvailable) blockers.push('Unlock this vault with its existing terminal passphrase or the key from the computer that created it. Update the helper if it predates desktop vault unlocking.');
   if (snapshot.state?.recoveryRequired) blockers.push('A previous transaction needs recovery before adding or switching accounts.');
   el('remote-maintenance').textContent = blockers.join(' '); el('remote-maintenance').hidden = !blockers.length;
   const canMutate = !remoteBusy && (!doctor.vaultExists || snapshot.keyAvailable) && !snapshot.state?.recoveryRequired;
   el('remote-import').disabled = !canMutate; el('remote-login').disabled = !canMutate;
   el('remote-refresh-saved').disabled = !canMutate || doctor.running.length > 0 || !doctor.vaultExists;
   el('remote-recover').hidden = !snapshot.state?.recoveryRequired; el('remote-recover').disabled = remoteBusy || !snapshot.keyAvailable || doctor.running.length > 0;
+  el('remote-terminal').hidden = !doctor.vaultExists;
+  el('remote-terminal').textContent = snapshot.keyAvailable ? 'Terminal access…' : 'Unlock vault…';
   const accounts = snapshot.state?.accounts || []; el('remote-empty').hidden = accounts.length > 0;
   el('remote-accounts').replaceChildren(...accounts.map(account => {
     const card = remoteNode('section', 'card remote-card');
@@ -129,7 +133,7 @@ async function performRemote(method, label) {
     // presenting another credential action rather than replaying the request.
     try { remoteSnapshot = await remoteApi.snapshot(host); } catch { remoteSnapshot = null; }
   } finally {
-    if (deviceHost === host) { closeLayer(el('remote-device-dialog')); deviceHost = null; el('remote-device-code').textContent = ''; }
+    if (deviceHost === host) { closeLayer(el('remote-device-dialog')); deviceHost = null; el('remote-device-code').textContent = ''; clearTimeout(copyCodeTimer); el('remote-copy-status').textContent = ''; }
     remoteBusy = false; renderRemote();
   }
 }
@@ -145,6 +149,7 @@ async function switchRemoteAccount(account) {
 function cancelRemoteLogin() {
   if (deviceHost) {
     el('remote-device-status').textContent = 'Cancelling and preserving login state…'; el('remote-device-cancel').disabled = true;
+    el('remote-device-copy').disabled = true;
     remoteApi.cancel(deviceHost).catch(remoteError);
   }
 }
@@ -178,11 +183,43 @@ el('remote-name-confirm').addEventListener('click', async () => {
 });
 el('remote-refresh-saved').addEventListener('click', () => performRemote('refresh'));
 el('remote-recover').addEventListener('click', () => performRemote('recover'));
+el('remote-terminal').addEventListener('click', () => {
+  const available = remoteSnapshot?.keyAvailable === true;
+  el('remote-vault-title').textContent = available ? 'Terminal access' : 'Unlock server vault';
+  el('remote-vault-export').hidden = !available; el('remote-vault-unlock').hidden = available;
+  el('remote-vault-status').textContent = ''; el('remote-vault-passphrase').value = '';
+  el('remote-vault-copy').textContent = 'Copy vault key for terminal';
+  openLayer(el('remote-vault-dialog'), el(available ? 'remote-vault-copy' : 'remote-vault-passphrase'));
+});
+el('remote-vault-done').addEventListener('click', () => { el('remote-vault-passphrase').value = ''; closeLayer(el('remote-vault-dialog')); });
+el('remote-vault-copy').addEventListener('click', async () => {
+  el('remote-vault-copy').disabled = true;
+  try { await remoteApi.copyVaultKey(remoteHost); el('remote-vault-copy').textContent = 'Copied'; el('remote-vault-status').textContent = 'Vault key copied. Paste only into the helper’s hidden passphrase prompt or your password manager.'; }
+  catch (error) { el('remote-vault-status').textContent = error.message; }
+  finally { el('remote-vault-copy').disabled = false; }
+});
+el('remote-vault-verify').addEventListener('click', async () => {
+  const passphrase = el('remote-vault-passphrase').value; el('remote-vault-passphrase').value = '';
+  el('remote-vault-verify').disabled = true; remoteBusy = true; renderRemote();
+  try { remoteSnapshot = await remoteApi.unlock(remoteHost, passphrase); closeLayer(el('remote-vault-dialog')); renderRemote(); }
+  catch (error) { el('remote-vault-status').textContent = error.message; }
+  finally { el('remote-vault-verify').disabled = false; remoteBusy = false; renderRemote(); }
+});
 el('remote-device-open').addEventListener('click', () => remoteApi.openLogin().catch(remoteError));
 el('remote-device-cancel').addEventListener('click', cancelRemoteLogin);
+el('remote-device-copy').addEventListener('click', async () => {
+  if (!deviceHost) return;
+  try {
+    await remoteApi.copyCode(deviceHost);
+    clearTimeout(copyCodeTimer); el('remote-device-copy').textContent = 'Copied';
+    el('remote-copy-status').textContent = 'Sign-in code copied to clipboard.';
+    copyCodeTimer = setTimeout(() => { el('remote-device-copy').textContent = 'Copy code'; }, 2000);
+  } catch { el('remote-copy-status').textContent = 'Could not copy. Select the code and use your keyboard’s Copy command.'; }
+});
 remoteApi.onEvent(event => {
   if (event.host !== remoteHost || !remoteBusy || event.kind !== 'device-code') return;
   deviceHost = event.host; el('remote-device-code').textContent = event.userCode;
+  clearTimeout(copyCodeTimer); el('remote-device-copy').textContent = 'Copy code'; el('remote-device-copy').disabled = false; el('remote-copy-status').textContent = '';
   el('remote-device-status').textContent = 'Waiting for browser sign-in…'; el('remote-device-cancel').disabled = false;
   if (el('remote-device-dialog').hidden) openLayer(el('remote-device-dialog'), el('remote-device-open'));
 });

@@ -24,8 +24,9 @@ async function expand(pattern, base, home) {
   if (pattern.startsWith('~/')) pattern = path.join(home, pattern.slice(2));
   const full = path.resolve(base, pattern);
   if (!/[?*]/.test(full)) return [full];
-  let paths = ['/'];
-  for (const part of full.split('/').filter(Boolean)) {
+  const root = path.parse(full).root;
+  let paths = [root];
+  for (const part of full.slice(root.length).split(path.sep).filter(Boolean)) {
     const next = [];
     for (const parent of paths) {
       if (!/[?*]/.test(part)) { next.push(path.join(parent, part)); continue; }

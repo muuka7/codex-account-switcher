@@ -45,3 +45,10 @@ test('RPC accepts only one bounded request per connection', async () => {
   input.write('x'.repeat(65537)); await running;
   assert.equal(JSON.parse(wire).error.code, 'ARGUMENTS');
 });
+
+test('vault unlocking verifies credentials without returning decrypted vault contents', async () => {
+  let verified = false;
+  const manager = { load: async secret => { assert.equal(secret, 'synthetic vault passphrase'); verified = true; return { auth: 'NEVER-RETURN-THIS' }; }, cached: async () => state };
+  const result = await dispatch({ version: 1, method: 'unlock', params: {}, secret: 'synthetic vault passphrase' }, { manager });
+  assert.equal(verified, true); assert.ok(!JSON.stringify(result).includes('NEVER-RETURN-THIS')); assert.ok(!JSON.stringify(result).includes('DO-NOT-LEAK'));
+});
