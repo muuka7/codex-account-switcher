@@ -10,6 +10,7 @@ async function liveUsage(codexHome, { socketPath = path.join(codexHome, 'app-ser
   const link = await fs.lstat(socketPath);
   const resolvedPath = await fs.realpath(socketPath);
   const stat = await fs.lstat(resolvedPath);
+  if (Buffer.byteLength(resolvedPath) > (process.platform === 'darwin' ? 103 : 107)) throw fail('UNSAFE_SOCKET', 'The resolved Codex socket path exceeds the platform limit.');
   // Current Linux Codex points the home entry at a private daemon socket in
   // /tmp. Validate both owners and connect to the resolved socket directly.
   if (link.uid !== process.getuid() || !stat.isSocket() || stat.uid !== process.getuid() || (stat.mode & 0o077) || /[:?]/.test(resolvedPath)) throw fail('UNSAFE_SOCKET', 'The Codex control socket must be private and owned by your user.');
@@ -20,8 +21,7 @@ async function liveUsage(codexHome, { socketPath = path.join(codexHome, 'app-ser
       if (finished) return;
       finished = true; clearTimeout(timer);
       // Finish the WebSocket close handshake before callers clean up their
-      // socket owner. Destroying it inside a message callback can also expose
-      // an async-context assertion in some Node builds.
+      // socket owner. Ignore any late messages once shutdown has begun.
       let closeTimer;
       const settle = () => { clearTimeout(closeTimer); if (error) reject(error); else resolve(value); };
       if (socket.readyState === WebSocket.CLOSED) return settle();
