@@ -143,6 +143,12 @@ async function main(argv = process.argv.slice(2)) {
   const { options, args } = parseArgs(argv);
   if (options.help) { console.log(HELP); return; }
   const command = args[0] || 'list';
+  if (command === 'serve') {
+    if (process.platform !== 'linux' || options.host) throw fail('LINUX_REQUIRED', 'The RPC helper must run on Linux.');
+    const { serve } = require('./rpc');
+    await serve({ manager: new ServerAccounts({ root: options.store, codexHome: options['codex-home'], binary: options.binary }) });
+    process.stdin.destroy(); return;
+  }
   if (command === 'servers') {
     const servers = new Servers(); let result;
     if (args[1] === 'add') result = await servers.add(args[2], options);
@@ -163,7 +169,7 @@ async function main(argv = process.argv.slice(2)) {
   }
   if (options.host) { await remote(options.host, args.length ? args : ['list'], options); return; }
   if (process.platform !== 'linux') throw fail('LINUX_REQUIRED', 'Run the account helper on Linux, or choose a server with connect / --host.');
-  const manager = new ServerAccounts({ root: options.store, codexHome: options['codex-home'], binary: options.binary, progress: message => { if (!options.json) process.stderr.write(`${clean(message)}\n`); } });
+  const manager = new ServerAccounts({ root: options.store, codexHome: options['codex-home'], binary: options.binary, progress: message => { if (!options.json || ['login', 'reauth'].includes(command)) process.stderr.write(`${clean(message)}\n`); } });
   let result;
   if (command === 'list') result = await manager.cached();
   else if (command === 'doctor') result = await manager.doctor();

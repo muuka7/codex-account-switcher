@@ -53,6 +53,27 @@ async function readConfig() {
   }
   return config;
 }
+async function buildPreview(config) {
+  await doctor(config);
+  requireCleanSource();
+  const sha = capture('git', ['rev-parse', 'HEAD']);
+  const directory = path.join(config.output, `preview-${pkg.version}-${sha.slice(0, 12)}-${Date.now()}`);
+  const work = path.join(directory, 'work');
+  for (const name of ['tmp', 'electron', 'builder', 'npm']) await fs.mkdir(path.join(work, name), { recursive: true });
+  const env = signingEnvironment(process.env, config, work);
+  const npm = args => execute(process.execPath, [process.env.npm_execpath, ...args], { env });
+  npm(['run', 'lint']); npm(['test']); npm(['audit', '--audit-level=moderate']);
+  npm(['audit', '--prefix', 'server', '--audit-level=moderate']);
+  npm(['run', 'pack:mac', '--', `-c.directories.output=${directory}`]);
+  await verifyRelease(directory, 'mac', pkg.version); await verifyPackagedRuntimes(directory, 'mac');
+  const oldTemp = process.env.TMPDIR; process.env.TMPDIR = path.join(work, 'tmp');
+  try { await verifyMacSignatures(directory, pkg.version, config.teamId); }
+  finally { if (oldTemp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = oldTemp; }
+  requireCleanSource();
+  if (sha !== capture('git', ['rev-parse', 'HEAD'])) throw new Error('The source commit changed during the build.');
+  await fs.writeFile(path.join(directory, 'preview-source.json'), `${JSON.stringify({ sha, version: pkg.version, signed: true, notarized: true }, null, 2)}\n`);
+  console.log(`Signed and notarized preview ready at ${directory}. No tag or public release was created.`);
+}
 async function configure(args) {
   const options = {};
   for (let i = 0; i < args.length; i += 2) {
@@ -146,8 +167,9 @@ async function main() {
   const [command, ...args] = process.argv.slice(2);
   if (command === 'setup') await configure(args);
   else if (command === 'doctor' && !args.length) await doctor(await readConfig());
+  else if (command === 'build' && !args.length) await buildPreview(await readConfig());
   else if (command === 'release' && !args.length) await release(await readConfig());
-  else throw new Error('Expected setup, doctor or release.');
+  else throw new Error('Expected setup, doctor, build or release.');
 }
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });
 module.exports = { selectIdentity, signingEnvironment, checkSpace };

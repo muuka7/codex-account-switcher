@@ -86,7 +86,7 @@ const RESET_TIME = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute:
 const RESET_DATE_TIME = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 function formatReset(epochSeconds) {
-  if (!Number.isFinite(Number(epochSeconds))) return 'Reset time unavailable';
+  if (epochSeconds === null || epochSeconds === undefined || !Number.isFinite(Number(epochSeconds))) return 'Reset time unavailable';
   const reset = new Date(Number(epochSeconds) * 1000);
   if (!Number.isFinite(reset.getTime())) return 'Reset time unavailable';
   return reset.toDateString() === new Date().toDateString()
@@ -95,14 +95,14 @@ function formatReset(epochSeconds) {
 }
 
 function percentText(value) {
-  if (!Number.isFinite(Number(value))) return '—';
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
   const rounded = Math.round(Number(value) * 10) / 10;
   return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`;
 }
 
 function quotaRail(label, window, accountName) {
   const node = document.createElement('div');
-  const remaining = window && Number.isFinite(Number(window.remainingPercent))
+  const remaining = window && window.remainingPercent !== null && window.remainingPercent !== undefined && Number.isFinite(Number(window.remainingPercent))
     ? Math.min(100, Math.max(0, Number(window.remainingPercent)))
     : null;
   const tone = remaining === null ? 'unknown' : remaining <= 10 ? 'critical' : remaining <= 25 ? 'low' : 'healthy';
@@ -267,7 +267,8 @@ document.addEventListener('keydown', (event) => {
 
 /** Escape / backdrop routes through the layer's own cancel path. */
 function dismissLayer(node) {
-  if (node === el('confirm-dialog')) settleConfirm(false);
+  if (node === el('remote-device-dialog')) cancelRemoteLogin();
+  else if (node === el('confirm-dialog')) settleConfirm(false);
   else if (node === el('add-dialog')) closeAddDialog();
   else if (node === el('save-dialog')) closeLayer(node);
   else if (node === el('shortcut-dialog')) closeLayer(node);

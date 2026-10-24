@@ -9,6 +9,7 @@ const { ensureFileCredentialStore } = require('./codex-config');
 const { readRateLimits } = require('./codex-app-server');
 const { publishState } = require('./state-events');
 const { createAutoUpdater } = require('./auto-updater');
+const { RemoteController } = require('./remote/controller');
 const { deriveIdentity, identityMatches, assertSavedIdentity } = require('./account-identity');
 const {
   chooseHandoff,
@@ -69,6 +70,7 @@ let guardedUsagePollTimer = null;
 let guardedHandoffBackgroundEnabled = false;
 let appIsQuitting = false;
 let autoUpdater;
+let remoteController;
 
 // A second process must not write the same vault or sweep another probe home.
 const primaryInstance = app.requestSingleInstanceLock();
@@ -374,26 +376,19 @@ async function cleanupRateLimitHome(tempHome) {
   throw Object.assign(new Error('The temporary usage-check directory could not be removed.'), { code: 'USAGE_CHECK_FAILED', cause: lastError });
 }
 
-async function cleanupStaleRateLimitHomes() {
-  const tempRoot = path.resolve(os.tmpdir());
-  let entries = [];
-  try { entries = await fs.readdir(tempRoot, { withFileTypes: true }); } catch { return; }
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith(RATE_LIMIT_TEMP_PREFIX)) continue;
-    await cleanupRateLimitHome(path.join(tempRoot, entry.name)).catch(() => {});
-  }
-}
-
 async function probeSavedAccount(account, index) {
   const useLiveHome = !index.pendingLogin && index.activeId === account.id && await exists(AUTH_PATH);
   if (useLiveHome) {
     assertSavedIdentity(account.identity, deriveIdentity(await readCurrentAuth()));
-    const result = await readRateLimits({ codexHome: CODEX_HOME });
+    let result, failure;
+    try { result = await readRateLimits({ codexHome: CODEX_HOME }); }
+    catch (error) { if (error.code === 'APP_SERVER_STOP_FAILED') throw error; failure = error; }
     const refreshedAuth = await readCurrentAuth();
     assertSavedIdentity(account.identity, deriveIdentity(refreshedAuth));
     await writeAtomic(accountBlobPath(account.id), protect(refreshedAuth));
     account.identity = { ...account.identity, ...deriveIdentity(refreshedAuth) };
     account.lastSavedAt = new Date().toISOString();
+    if (failure) throw failure;
     return result;
   }
 
@@ -409,21 +404,34 @@ async function probeSavedAccount(account, index) {
   assertSavedIdentity(account.identity, deriveIdentity(auth));
 
   const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), RATE_LIMIT_TEMP_PREFIX));
+  let cleanup = true;
   try {
     await fs.writeFile(path.join(tempHome, 'auth.json'), auth, { mode: 0o600 });
     await fs.writeFile(path.join(tempHome, 'config.toml'), 'cli_auth_credentials_store = "file"\n', { mode: 0o600 });
-    const result = await readRateLimits({ codexHome: tempHome, sqliteHome: tempHome });
+    let result, failure;
+    try { result = await readRateLimits({ codexHome: tempHome, sqliteHome: tempHome }); }
+    catch (error) {
+      if (error.code === 'APP_SERVER_STOP_FAILED') { cleanup = false; throw error; }
+      failure = error;
+    }
+    cleanup = false;
     const refreshedAuth = await fs.readFile(path.join(tempHome, 'auth.json'));
     if (!refreshedAuth.equals(auth)) {
       const actualIdentity = deriveIdentity(refreshedAuth);
+      // A failed quota request can still rotate refresh credentials. Retain
+      // the private staging copy if identity validation or encryption fails.
+      cleanup = false;
       assertSavedIdentity(account.identity, actualIdentity);
-      await writeAtomic(accountBlobPath(account.id), protect(refreshedAuth));
+      try { await writeAtomic(accountBlobPath(account.id), protect(refreshedAuth)); }
+      catch { throw Object.assign(new Error('Refreshed credentials could not be encrypted. A private usage-check directory was retained for recovery.'), { code: 'PERSIST_FAILED' }); }
       account.identity = { ...account.identity, ...actualIdentity };
       account.lastSavedAt = new Date().toISOString();
     }
+    cleanup = true;
+    if (failure) throw failure;
     return result;
   } finally {
-    await cleanupRateLimitHome(tempHome);
+    if (cleanup) await cleanupRateLimitHome(tempHome);
   }
 }
 
@@ -1364,6 +1372,28 @@ function createWindow(settings) {
 }
 
 function installIpc() {
+  remoteController = new RemoteController({ app, safeStorage, notify: event => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('remote:event', event);
+  } });
+  const remoteHandler = (channel, handler) => ipcMain.handle(channel, async (event, ...args) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) return { ok: false, error: { code: 'FORBIDDEN', message: 'This window cannot manage server accounts.' } };
+    try { return { ok: true, value: await handler(...args) }; }
+    catch (error) {
+      // Only deliberate public errors may cross IPC. OS errors can contain
+      // local paths or server output and are not renderer response fields.
+      const publicCodes = new Set(['INVALID_HOST', 'ARGUMENTS', 'SERVER_EXISTS', 'BUSY', 'LOCAL_KEYCHAIN', 'VAULT_KEY_MISSING', 'HELPER_UPDATE', 'SSH_HOST_KEY', 'SSH_AUTH', 'HELPER_MISSING', 'SSH_FAILED', 'SSH_TIMEOUT', 'CANCELLED', 'REMOTE_PROTOCOL']);
+      const serverError = require('./server/errors').publicError(error);
+      return { ok: false, error: publicCodes.has(error.code) ? { code: error.code, message: error.message } : serverError };
+    }
+  });
+  remoteHandler('remote:servers', () => remoteController.list());
+  remoteHandler('remote:add', value => remoteController.add(value));
+  remoteHandler('remote:remove', host => remoteController.remove(host));
+  remoteHandler('remote:snapshot', host => remoteController.snapshot(host));
+  remoteHandler('remote:install', host => remoteController.install(host));
+  remoteHandler('remote:mutate', (host, method, label) => remoteController.mutate(host, method, label));
+  remoteHandler('remote:cancel', host => remoteController.cancel(host));
+  remoteHandler('remote:open-login', () => shell.openExternal('https://auth.openai.com/codex/device'));
   ipcMain.handle('state:get', getState);
   ipcMain.handle('state:live', getLiveAccount);
   ipcMain.handle('account:import-current', (_event, name) => importCurrentAccount(name));
@@ -1400,7 +1430,8 @@ app.whenReady().then(async () => {
   await ensureDirs();
   await ensureCodexCompatibility();
   rateLimitCache = await readRateLimitCache();
-  await cleanupStaleRateLimitHomes();
+  // Never sweep abandoned probe homes: a failed persistence/child shutdown
+  // may have deliberately retained the newest credential copy there.
   await recoverGuardedHandoff();
   const settings = await readSettings();
   configureGuardedUsagePolling(settings.guardedHandoff.enabled);
@@ -1428,6 +1459,7 @@ app.on('will-quit', () => {
   if (guardedUsagePollTimer) clearInterval(guardedUsagePollTimer);
   stopHandoffMonitor();
   autoUpdater?.dispose();
+  remoteController?.dispose();
   globalShortcut.unregisterAll();
 });
 app.on('before-quit', () => { appIsQuitting = true; });

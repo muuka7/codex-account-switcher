@@ -9,7 +9,7 @@ function fail(code, message) { return Object.assign(new Error(message), { code }
 async function privateDirectory(dir) {
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
   const stat = await fs.lstat(dir);
-  if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid()) {
+  if (!stat.isDirectory() || stat.isSymbolicLink() || (process.getuid && stat.uid !== process.getuid())) {
     throw fail('UNSAFE_PATH', 'The data directory must be a directory owned by your user, without a symlink.');
   }
   await fs.chmod(dir, 0o700);
@@ -20,7 +20,7 @@ async function readPrivate(file, { missing = false } = {}) {
   try {
     handle = await fs.open(file, require('node:fs').constants.O_RDONLY | require('node:fs').constants.O_NOFOLLOW);
     const stat = await handle.stat();
-    if (!stat.isFile() || stat.uid !== process.getuid() || (stat.mode & 0o077)) {
+    if (!stat.isFile() || (process.getuid && (stat.uid !== process.getuid() || (stat.mode & 0o077)))) {
       throw fail('UNSAFE_PATH', 'A private file has unsafe ownership or permissions. Expected mode 0600.');
     }
     if (stat.size > 8 * 1024 * 1024) throw fail('INVALID_DATA', 'The private file is too large.');
@@ -41,8 +41,10 @@ async function atomicWrite(file, bytes) {
     await handle.sync();
     await handle.close(); handle = null;
     await fs.rename(temp, file);
-    const dir = await fs.open(path.dirname(file), 'r');
-    try { await dir.sync(); } finally { await dir.close(); }
+    if (process.platform !== 'win32') {
+      const dir = await fs.open(path.dirname(file), 'r');
+      try { await dir.sync(); } finally { await dir.close(); }
+    }
   } finally {
     await handle?.close();
     await fs.rm(temp, { force: true });
@@ -104,7 +106,7 @@ function identity(auth) {
   if (typeof accountId !== 'string' || !accountId || typeof email !== 'string' || !email) throw fail('INVALID_AUTH', 'The login must identify both the account/workspace and email.');
   return { accountId, email, planType: typeof nested.chatgpt_plan_type === 'string' ? nested.chatgpt_plan_type : null };
 }
-function sameIdentity(a, b) { return a.accountId === b.accountId && a.email.toLowerCase() === b.email.toLowerCase(); }
+function sameIdentity(a, b) { return Boolean(a && b && typeof a.accountId === 'string' && a.accountId && a.accountId === b.accountId && typeof a.email === 'string' && a.email && typeof b.email === 'string' && a.email.toLowerCase() === b.email.toLowerCase()); }
 function hash(bytes) { return crypto.createHash('sha256').update(bytes).digest('hex'); }
 
 module.exports = { fail, privateDirectory, readPrivate, atomicWrite, encrypt, decrypt, withLock, identity, sameIdentity, hash };

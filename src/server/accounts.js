@@ -2,13 +2,15 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
-const { spawn, execFile } = require('node:child_process');
+const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const TOML = require('smol-toml');
 const { readRateLimits } = require('../codex-app-server');
 const { allBucketsFromResult } = require('../rate-limits');
 const { codexProcesses, requireQuiet } = require('./processes');
 const { liveUsage } = require('./live-usage');
+const { deviceLogin } = require('./device-login');
+const { publicState } = require('./public-data');
 const { fail, privateDirectory, readPrivate, atomicWrite, encrypt, decrypt, withLock, identity, sameIdentity, hash } = require('./security');
 
 function validLabel(label) {
@@ -64,7 +66,7 @@ class ServerAccounts {
     if (data) { try { state = JSON.parse(data); } catch { throw fail('INVALID_DATA', 'The display cache is invalid. Unlock the vault with refresh to rebuild it.'); } }
     let live = null;
     try { const bytes = await this.liveAuth(); if (bytes) live = identity(JSON.parse(bytes)); } catch { /* Missing/invalid live login is shown as unknown, not as a saved selection. */ }
-    return { ...state, host: os.hostname(), codexHome: this.codexHome, accounts: state.accounts.map(a => ({ ...a, isSelected: Boolean(live && sameIdentity(a.identity, live)), usage: a.usage ? { ...a.usage, stale: !Number.isFinite(Date.parse(a.usage.checkedAt || '')) || Date.now() - Date.parse(a.usage.checkedAt || '') > 30 * 60 * 1000 } : null })) };
+    return publicState({ ...state, host: os.hostname(), codexHome: this.codexHome, accounts: (Array.isArray(state.accounts) ? state.accounts : []).filter(a => a && typeof a === 'object').map(a => ({ ...a, isSelected: Boolean(live && sameIdentity(a.identity, live)) })) });
   }
 
   async liveAuth() { return readPrivate(this.authPath, { missing: true }); }
@@ -126,7 +128,7 @@ class ServerAccounts {
     return home;
   }
 
-  async login(label, passphrase, { replace = false } = {}) {
+  async login(label, passphrase, { replace = false, onCode, signal } = {}) {
     validLabel(label);
     return this.transaction(passphrase, async vault => {
       const existing = vault.accounts.find(a => a.label === label);
@@ -135,11 +137,14 @@ class ServerAccounts {
       let live;
       if (replace) { await requireQuiet(this.scanner); live = await this.syncLive(vault); if (live?.saved?.id === existing.id) await this.requireFileStore(); }
       const home = await this.tempHome();
+      let cleanup = true;
+      const loginAbort = new AbortController(), cancelLogin = () => loginAbort.abort();
+      for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(name, cancelLogin);
+      signal?.addEventListener('abort', cancelLogin, { once: true });
+      if (signal?.aborted) cancelLogin();
       try {
-        await new Promise((resolve, reject) => {
-          const child = spawn(this.binary, ['login', '--device-auth'], { cwd: home, env: probeEnvironment(home), stdio: 'inherit' });
-          child.once('error', () => reject(fail('LOGIN_FAILED', 'Codex could not start device login.')));
-          child.once('close', code => code === 0 ? resolve() : reject(fail('LOGIN_FAILED', 'Device login did not complete. The active login was not changed.')));
+        await deviceLogin({ binary: this.binary, home, env: probeEnvironment(home), signal: loginAbort.signal,
+          onCode: onCode || (code => this.progress(`Open ${code.verificationUrl} and enter code ${code.userCode}`)),
         });
         const auth = JSON.parse(await readPrivate(path.join(home, 'auth.json')));
         if (replace) {
@@ -153,7 +158,18 @@ class ServerAccounts {
           vault.pending = null;
         }
         await this.save(vault, passphrase); return this.cached();
-      } finally { await fs.rm(home, { recursive: true, force: true }); }
+      } catch (error) {
+        if (error.code === 'APP_SERVER_STOP_FAILED') cleanup = false;
+        else if (!['IDENTITY_MISMATCH', 'LOGIN_FAILED', 'CANCELLED', 'ACCOUNT_EXISTS'].includes(error.code)) {
+          const staged = await readPrivate(path.join(home, 'auth.json'), { missing: true }).catch(() => null);
+          if (staged) { cleanup = false; throw fail('PERSIST_FAILED', 'The new login could not be saved. Preserve the private staging directory for recovery.'); }
+        }
+        throw error;
+      } finally {
+        for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.off(name, cancelLogin);
+        signal?.removeEventListener('abort', cancelLogin);
+        if (cleanup) await fs.rm(home, { recursive: true, force: true });
+      }
     }, { create: true });
   }
 
@@ -169,11 +185,13 @@ class ServerAccounts {
       }
       // Even an unsuccessful usage read may have rotated credentials. Rescue
       // them before cleanup, and before deciding whether the operation failed.
+      cleanup = false;
       const refreshed = JSON.parse(await readPrivate(path.join(home, 'auth.json')));
-      if (!sameIdentity(account.identity, identity(refreshed))) throw fail('IDENTITY_MISMATCH', 'Codex returned credentials for a different account.');
+      if (!sameIdentity(account.identity, identity(refreshed))) throw fail('IDENTITY_MISMATCH', 'Codex returned credentials for a different account. A private recovery copy was retained.');
       account.auth = refreshed; account.savedAt = new Date().toISOString();
       try { await persist(); }
       catch { cleanup = false; throw fail('PERSIST_FAILED', 'Refreshed credentials could not be encrypted into the vault. A private recovery copy remains under the store probes directory. Stop Codex and preserve that directory for recovery.'); }
+      cleanup = true;
       if (failure) throw failure;
       const buckets = allBucketsFromResult(result);
       if (!buckets.length) throw fail('USAGE_UNAVAILABLE', 'No quota buckets were returned.');
@@ -264,7 +282,12 @@ class ServerAccounts {
   async doctor() {
     let codexVersion = null;
     try { const { stdout } = await promisify(execFile)(this.binary, ['--version'], { timeout: 5000, maxBuffer: 4096 }); codexVersion = stdout.match(/codex-cli\s+[\d.]+/)?.[0] || null; } catch { /* A missing runtime is a setup state, not a raw child error. */ }
-    return { host: os.hostname(), platform: process.platform, codexHome: this.codexHome, root: this.root, vaultExists: Boolean(await readPrivate(this.vaultPath, { missing: true })), running: await this.scanner(), codexVersion, runtimeCommand: this.binary };
+    let installationId = null;
+    const installation = await readPrivate(path.join(this.root, 'installation.json'), { missing: true });
+    if (installation) { const v = JSON.parse(installation); if (typeof v.id === 'string' && /^[a-f0-9-]{36}$/.test(v.id)) installationId = v.id; }
+    let fileStoreReady = false; try { await this.requireFileStore(); fileStoreReady = true; } catch { /* Report setup without changing configuration. */ }
+    let helperVersion = null; try { helperVersion = JSON.parse(await fs.readFile(path.join(__dirname, '../../server/build.json'), 'utf8')).version; } catch { /* Development checkout. */ }
+    return { host: os.hostname(), platform: process.platform, installationId, helperVersion, codexHome: this.codexHome, root: this.root, vaultExists: Boolean(await readPrivate(this.vaultPath, { missing: true })), running: await this.scanner(), codexVersion, runtimeCommand: this.binary, fileStoreReady };
   }
   live(options) { return liveUsage(this.codexHome, options); }
   reauth(label, passphrase) { return this.login(label, passphrase, { replace: true }); }

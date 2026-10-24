@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { ownedProcess } = require('./owned-process');
 
 const TARGETS = Object.freeze({
   'darwin:x64': { packageName: '@openai/codex-darwin-x64', triple: 'x86_64-apple-darwin', binary: 'codex' },
@@ -72,6 +73,7 @@ function appServerRequest({
     const child = spawn(runtime.binaryPath, ['app-server'], {
       cwd,
       windowsHide: true,
+      detached: process.platform !== 'win32',
       env: {
         ...env,
         PATH: pathParts.join(path.delimiter),
@@ -81,41 +83,15 @@ function appServerRequest({
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
+    const owned = ownedProcess(child);
     let stdout = '';
-    let stderr = '';
     let finishing = false;
-    let closed = false;
-    const closeWaiters = [];
-
-    function markClosed() {
-      closed = true;
-      while (closeWaiters.length) closeWaiters.shift()();
-    }
-
-    function waitForClose(waitMs) {
-      if (closed) return Promise.resolve();
-      return Promise.race([
-        new Promise((done) => closeWaiters.push(done)),
-        new Promise((done) => setTimeout(done, waitMs)),
-      ]);
-    }
-
-    async function stopChild() {
-      try { child.stdin.end(); } catch {}
-      if (!closed) child.kill();
-      await waitForClose(1800);
-      if (!closed) {
-        child.kill('SIGKILL');
-        await waitForClose(700);
-      }
-      if (!closed) throw appServerError('Usage runtime did not stop.', 'APP_SERVER_STOP_FAILED');
-    }
 
     async function finish(error, value) {
       if (finishing) return;
       finishing = true;
       clearTimeout(timeout);
-      try { await stopChild(); } catch (stopError) { reject(stopError); return; }
+      try { await owned.stop(); } catch (stopError) { reject(stopError); return; }
       if (error) reject(error);
       else resolve(value);
     }
@@ -131,12 +107,9 @@ function appServerRequest({
     child.once('error', () => finish(appServerError('The Codex usage runtime could not be started.', 'APP_SERVER_START_FAILED')));
     child.stdin.on('error', () => finish(appServerError('The Codex usage runtime connection closed.', 'APP_SERVER_EXITED')));
     child.once('close', (code) => {
-      markClosed();
       if (!finishing) finish(appServerError(`The Codex usage runtime stopped unexpectedly (${code ?? 'unknown'}).`, 'APP_SERVER_EXITED'));
     });
-    child.stderr.on('data', (chunk) => {
-      if (stderr.length < 1000) stderr += chunk.toString('utf8').slice(0, 1000 - stderr.length);
-    });
+    child.stderr.on('data', () => {});
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString('utf8');
       if (stdout.length > 4 * 1024 * 1024) {
@@ -175,7 +148,7 @@ function appServerRequest({
       id: 1,
       method: 'initialize',
       params: {
-        clientInfo: { name: 'codex-account-switcher', version: '0.2.1' },
+        clientInfo: { name: 'codex-account-switcher', version: '0.3.0' },
         capabilities: { experimentalApi: true },
       },
     });
