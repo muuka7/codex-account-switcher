@@ -1,6 +1,6 @@
 # Linux and SSH accounts
 
-The headless CLI reuses this repository's Codex App Server client and rate-limit normalization. Desktop account cards remain local in this version. The server runs Node.js 20+ and the official Codex CLI; Electron is not installed on the server.
+The headless CLI reuses this repository's Codex App Server client and rate-limit normalization. The desktop can manage both local accounts and saved accounts on SSH servers. The server runs Node.js 20+ and the official Codex CLI; Electron is not installed on the server.
 
 ## Find and add servers
 
