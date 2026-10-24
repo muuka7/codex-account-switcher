@@ -18,14 +18,24 @@ async function liveUsage(codexHome, { socketPath = path.join(codexHome, 'app-ser
     let finished = false, account = null;
     const finish = (error, value) => {
       if (finished) return;
-      finished = true; clearTimeout(timer); socket.terminate();
-      if (error) reject(error); else resolve(value);
+      finished = true; clearTimeout(timer);
+      // Finish the WebSocket close handshake before callers clean up their
+      // socket owner. Destroying it inside a message callback can also expose
+      // an async-context assertion in some Node builds.
+      let closeTimer;
+      const settle = () => { clearTimeout(closeTimer); if (error) reject(error); else resolve(value); };
+      if (socket.readyState === WebSocket.CLOSED) return settle();
+      socket.once('close', settle);
+      closeTimer = setTimeout(() => socket.terminate(), 750); closeTimer.unref?.();
+      if (socket.readyState === WebSocket.OPEN) socket.close(1000);
+      else socket.terminate();
     };
     const timer = setTimeout(() => finish(fail('LIVE_USAGE_TIMEOUT', 'The existing Codex daemon did not answer. Cached account usage is still available.')), timeoutMs);
     socket.on('error', () => finish(fail('LIVE_USAGE_UNAVAILABLE', 'Could not connect to the existing Codex daemon. No new daemon was started.')));
     socket.on('close', () => finish(fail('LIVE_USAGE_UNAVAILABLE', 'The Codex daemon closed the usage connection.')));
-    socket.on('open', () => socket.send(JSON.stringify({ id: 1, method: 'initialize', params: { clientInfo: { name: 'codex-account-switcher', version: '0.2.1' }, capabilities: {} } })));
+    socket.on('open', () => { if (!finished) socket.send(JSON.stringify({ id: 1, method: 'initialize', params: { clientInfo: { name: 'codex-account-switcher', version: '0.3.0' }, capabilities: {} } })); });
     socket.on('message', bytes => {
+      if (finished) return;
       let message; try { message = JSON.parse(bytes); } catch { return; }
       if (message.error && [1, 2, 3].includes(message.id)) return finish(fail('LIVE_USAGE_UNAVAILABLE', 'Codex rejected the live usage request.'));
       if (message.id === 1 && message.result) {
