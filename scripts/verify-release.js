@@ -3,6 +3,22 @@ const { createReadStream } = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const yaml = require('js-yaml');
+const tar = require('tar');
+const helperFiles = require('../src/remote/helper-files');
+
+async function verifyHelperArchive(file, version) {
+  const expected = new Set([...helperFiles, 'server/build.json']);
+  const seen = new Set(); let manifest = '', invalid = false;
+  await tar.t({ file, onReadEntry(entry) {
+    if (entry.type !== 'File' || !expected.has(entry.path) || seen.has(entry.path) || entry.size > 8 * 1024 * 1024) invalid = true;
+    seen.add(entry.path);
+    if (entry.path === 'server/build.json') entry.on('data', bytes => { if (manifest.length < 4096) manifest += bytes.toString(); });
+    entry.resume();
+  } });
+  if (invalid || seen.size !== expected.size || [...expected].some(name => !seen.has(name))) throw new Error('The packaged server helper has unexpected or missing files.');
+  let data; try { data = JSON.parse(manifest); } catch { throw new Error('The packaged server helper manifest is invalid.'); }
+  if (data.version !== version || data.protocol !== 1) throw new Error('The packaged server helper version or protocol does not match this app.');
+}
 
 async function digest(file, algorithm) {
   const hash = crypto.createHash(algorithm);
@@ -53,6 +69,7 @@ async function verifyPackagedRuntimes(dir, platform) {
   for (const root of resources) {
     const binary = path.join(root, 'codex-runtime', 'bin', platform === 'mac' ? 'codex' : 'codex.exe');
     if (!(await fs.stat(binary)).isFile()) throw new Error('A packaged Codex runtime is missing.');
+    await verifyHelperArchive(path.join(root, 'server-helper.tar.gz'), require('../package.json').version);
   }
 }
 
@@ -65,4 +82,4 @@ if (require.main === module) {
     .catch(error => { console.error(error.message); process.exitCode = 1; });
 }
 
-module.exports = { verifyRelease, verifyPackagedRuntimes, digest };
+module.exports = { verifyRelease, verifyPackagedRuntimes, verifyHelperArchive, digest };

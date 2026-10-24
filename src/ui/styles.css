@@ -618,3 +618,20 @@ input[type="text"]:disabled { opacity: .5; }
     transition-duration: .01ms !important;
   }
 }
+
+.server-context { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s5); }
+.server-context label { font-size: var(--t-sm); color: var(--ink-3); }
+.server-context select { flex: 1; min-width: 120px; max-width: 340px; padding: 8px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.remote-copy { font-size: var(--t-sm); color: var(--ink-3); line-height: 1.6; overflow-wrap: anywhere; }
+.remote-card { padding: var(--s4); }
+.remote-card h3 { margin: 0 0 var(--s2); font-size: var(--t-lg); }
+.remote-quotas { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--s3); margin: var(--s3) 0; }
+.remote-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.remote-fields { display: grid; grid-template-columns: 1fr 100px; gap: var(--s3); }
+.server-dialog { max-height: 86vh; overflow-y: auto; width: min(620px, calc(100vw - 32px)); }
+.server-row { display: flex; gap: var(--s3); align-items: center; padding: var(--s2) 0; border-bottom: 1px solid var(--line); }
+.server-row .remote-copy { flex: 1; margin: 0; }
+.server-row strong { color: var(--ink); display: block; }
+.device-code { display: block; font-size: 30px; font-weight: 700; letter-spacing: 3px; padding: var(--s4); text-align: center; background: var(--accent-soft); border-radius: var(--r-md); margin: var(--s3) 0; user-select: all; }
+.device-code-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3); }
+.device-code-row .device-code { flex: 1; min-width: 200px; }

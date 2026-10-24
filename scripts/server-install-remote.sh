@@ -7,8 +7,14 @@ task_store="$HOME/.local/share/codex-account-switcher"
 mkdir -p "$task_store/releases"
 test ! -L "$task_store" && test ! -L "$task_store/releases" || { echo 'Refusing symlinked install directories.' >&2; exit 1; }
 chmod 700 "$task_store" "$task_store/releases"
+node - "$task_store" <<'NODE'
+const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
+const file = path.join(process.argv[2], 'installation.json');
+try { fs.writeFileSync(file, JSON.stringify({ id: crypto.randomUUID(), version: 1 }), { flag: 'wx', mode: 0o600 }); }
+catch (error) { if (error.code !== 'EEXIST') throw error; }
+NODE
 task_stage=$(mktemp -d "$task_store/releases/build-XXXXXXXX")
-tar -xf - --no-same-owner -C "$task_stage"
+tar -xzf - --no-same-owner -C "$task_stage"
 mv "$task_stage/server/package.json" "$task_stage/package.json"
 mv "$task_stage/server/package-lock.json" "$task_stage/package-lock.json"
 npm ci --prefix "$task_stage" --omit=dev --ignore-scripts --no-audit --no-fund

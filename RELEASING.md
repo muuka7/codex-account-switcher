@@ -48,6 +48,15 @@ Build outputs, downloads and temporary extraction files use the chosen working
 volume. `npm ci` still installs dependencies in the source checkout, so that
 volume also needs enough space for `node_modules`.
 
+## Signed test builds
+
+Run `npm run build:signed:mac` from a clean committed checkout to build and
+verify both macOS architectures with the configured local Keychain. It runs
+tests and audits, checks native runtimes and the packaged server helper, and
+verifies signing, notarization and matching DMG/ZIP apps. Outputs go to a fresh
+`preview-*` directory on the configured build volume. It does not create tags,
+upload installers or publish a release. CI must still pass before publication.
+
 ## Cutting a release
 
 1. Merge the candidate into `main` and verify CI is green.

@@ -7,11 +7,21 @@ const http = require('node:http');
 const { WebSocketServer } = require('ws');
 const { liveUsage } = require('../src/server/live-usage');
 
+test('a stopped daemon reports live usage unavailable without starting a replacement', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'live-stopped-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await assert.rejects(liveUsage(dir), { code: 'LIVE_USAGE_UNAVAILABLE' });
+  assert.deepEqual(await fs.readdir(dir), []);
+});
+
 test('live usage uses the existing socket and exposes only identity and sanitized quotas', async t => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'live-usage-')); const socketPath = path.join(dir, 'control.sock');
+  // Signed builds place TMPDIR deep inside the chosen working volume. Unix
+  // socket names have a small platform byte limit, unlike ordinary files.
+  const temporary = Buffer.byteLength(path.join(await fs.realpath(os.tmpdir()), 'live-usage-XXXXXX/control.sock')) > 100 ? '/tmp' : os.tmpdir();
+  const dir = await fs.mkdtemp(path.join(temporary, 'live-usage-')); const socketPath = path.join(dir, 'control.sock');
   const server = http.createServer(), ws = new WebSocketServer({ server });
   t.after(async () => { ws.close(); await new Promise(resolve => server.close(resolve)); await fs.rm(dir, { recursive: true, force: true }); });
-  await new Promise(resolve => server.listen(socketPath, resolve));
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socketPath, resolve); });
   await fs.chmod(socketPath, 0o600);
   const methods = [];
   ws.on('connection', socket => socket.on('message', bytes => {

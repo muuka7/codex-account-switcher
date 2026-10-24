@@ -15,7 +15,7 @@
       <div class="mark" aria-hidden="true">C</div>
       <div class="wordmark">
         <strong>Codex Account Switcher</strong>
-        <span>Encrypted account profiles stay on this device</span>
+        <span>Local and SSH server accounts</span>
       </div>
       <div class="titlebar-actions">
         <button id="open-codex" class="btn btn-ghost" type="button">
@@ -30,6 +30,43 @@
     <div class="scroll">
       <main class="page">
         <div id="alerts" class="stack"></div>
+
+        <div class="server-context">
+          <label for="account-location">Accounts on</label>
+          <select id="account-location" aria-label="Account location"><option value="">This computer</option></select>
+          <button id="manage-servers" class="btn btn-sm" type="button">Servers…</button>
+        </div>
+
+        <section id="remote-view" class="stack" hidden aria-label="Server accounts">
+          <div class="section-head">
+            <h2 id="remote-title">Server</h2><span class="spacer"></span>
+            <button id="remote-reconnect" class="btn btn-sm" type="button">Refresh live usage</button>
+          </div>
+          <p id="remote-status" class="remote-copy" role="status" aria-live="polite"></p>
+          <div id="remote-error" class="notice notice-warn" hidden></div>
+          <button id="remote-setup" class="btn" type="button" hidden>Set up server helper</button>
+          <section id="remote-live" class="card remote-card" hidden aria-labelledby="remote-live-title">
+            <h3 id="remote-live-title">Connected Codex daemon</h3>
+            <p id="remote-live-account" class="remote-copy"></p>
+            <div id="remote-live-usage" class="remote-quotas"></div>
+            <p id="remote-live-note" class="remote-copy"></p>
+          </section>
+          <div id="remote-maintenance" class="notice notice-warn" hidden></div>
+          <div class="section-head"><h2>Saved on this server</h2><span class="spacer"></span>
+            <button id="remote-refresh-saved" class="btn btn-sm" type="button">Refresh saved usage</button>
+          </div>
+          <div id="remote-accounts" class="stack"></div>
+          <p id="remote-empty" class="remote-copy">Save the server’s current login or add an account through device login.</p>
+          <div class="remote-actions">
+            <button id="remote-import" class="btn" type="button">Save current login</button>
+            <button id="remote-login" class="btn btn-primary" type="button">Add account</button>
+            <button id="remote-recover" class="btn" type="button" hidden>Recover transaction</button>
+            <button id="remote-terminal" class="btn" type="button" hidden>Terminal access…</button>
+          </div>
+          <p class="remote-copy">Saved credentials stay encrypted on this server. Switching requires a quiet server; existing Codex sessions keep their own login until reconnected.</p>
+        </section>
+
+        <div id="local-view">
 
         <section id="handoff-card" class="notice notice-handoff stacked" role="status" aria-live="polite" hidden>
           <span class="notice-icon" data-icon="rotate"></span>
@@ -104,6 +141,7 @@
           <span class="sep">·</span>
           <button id="open-store" class="btn-link" type="button">Show local data</button>
         </p>
+        </div>
       </main>
     </div>
   </div>
@@ -391,7 +429,70 @@
     </section>
   </div>
 
+  <div id="servers-dialog" class="dialog-layer" hidden>
+    <div class="backdrop" data-close></div>
+    <section class="dialog server-dialog" role="dialog" aria-modal="true" aria-labelledby="servers-title">
+      <h2 id="servers-title">SSH servers</h2>
+      <p>Aliases come from your SSH config. No servers are contacted until you connect. SSH keys and host verification use your normal OpenSSH setup.</p>
+      <div id="servers-list" class="stack"></div>
+      <p id="servers-warning" class="remote-copy"></p>
+      <details><summary>Add a server manually</summary>
+        <div class="field"><label for="server-alias">Display alias</label><input id="server-alias" maxlength="64" placeholder="build-server" autocomplete="off" /></div>
+        <div class="field"><label for="server-address">Hostname or IP address</label><input id="server-address" maxlength="253" placeholder="server.example.com" autocomplete="off" /></div>
+        <div class="remote-fields">
+          <div class="field"><label for="server-user">SSH user (optional)</label><input id="server-user" maxlength="64" autocomplete="off" /></div>
+          <div class="field"><label for="server-port">Port (optional)</label><input id="server-port" type="number" min="1" max="65535" placeholder="22" /></div>
+        </div>
+        <button id="server-add" class="btn" type="button">Save server</button>
+      </details>
+      <p id="servers-form-error" class="form-error" hidden></p>
+      <div class="dialog-actions"><button id="servers-done" class="btn btn-primary" type="button">Done</button></div>
+    </section>
+  </div>
+  <div id="remote-name-dialog" class="dialog-layer" hidden>
+    <div class="backdrop" data-close></div>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="remote-name-title">
+      <h2 id="remote-name-title">Save server account</h2><p id="remote-name-note"></p>
+      <div class="field"><label for="remote-label">Account label</label><input id="remote-label" maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}" placeholder="personal" autocomplete="off" spellcheck="false" /></div>
+      <p id="remote-name-error" class="form-error" hidden></p>
+      <div class="dialog-actions"><button id="remote-name-cancel" class="btn" type="button">Cancel</button><button id="remote-name-confirm" class="btn btn-primary" type="button">Continue</button></div>
+    </section>
+  </div>
+  <div id="remote-vault-dialog" class="dialog-layer" hidden>
+    <div class="backdrop" data-close></div>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="remote-vault-title">
+      <h2 id="remote-vault-title">Terminal access</h2>
+      <div id="remote-vault-export">
+        <p>To manage these same accounts from SSH, run the server helper and paste this vault key into its hidden passphrase prompt.</p>
+        <div class="notice notice-warn">This key unlocks every saved account on this server. Keep it in your password manager and out of commands, environment variables and logs.</div>
+        <div class="dialog-actions"><button id="remote-vault-copy" class="btn" type="button">Copy vault key for terminal</button></div>
+      </div>
+      <div id="remote-vault-unlock" hidden>
+        <p>Enter the passphrase used to create this server vault in the terminal. After verification, this computer protects it with operating system encryption. The server vault and current login stay unchanged.</p>
+        <div class="field"><label for="remote-vault-passphrase">Existing vault passphrase</label><input id="remote-vault-passphrase" type="password" minlength="12" maxlength="1024" autocomplete="current-password" /></div>
+        <div class="dialog-actions"><button id="remote-vault-verify" class="btn btn-primary" type="button">Unlock on this computer</button></div>
+      </div>
+      <p id="remote-vault-status" class="remote-copy" role="status" aria-live="polite"></p>
+      <div class="dialog-actions"><button id="remote-vault-done" class="btn" type="button">Done</button></div>
+    </section>
+  </div>
+  <div id="remote-device-dialog" class="dialog-layer" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="remote-device-title">
+      <h2 id="remote-device-title">Sign in to the server account</h2>
+      <p>Open the official OpenAI device sign-in page, enter this code, and choose the account you want to save.</p>
+      <div class="device-code-row">
+        <code id="remote-device-code" class="device-code"></code>
+        <button id="remote-device-copy" class="btn" type="button">Copy code</button>
+      </div>
+      <p id="remote-copy-status" class="remote-copy" role="status" aria-live="polite"></p>
+      <p class="remote-copy">https://auth.openai.com/codex/device</p>
+      <p id="remote-device-status" role="status">Waiting for browser sign-in…</p>
+      <div class="dialog-actions"><button id="remote-device-cancel" class="btn" type="button">Cancel login</button><button id="remote-device-open" class="btn btn-primary" type="button">Open sign-in page</button></div>
+    </section>
+  </div>
+
   <script src="icons.js"></script>
   <script src="app.js"></script>
+  <script src="remote.js"></script>
 </body>
 </html>

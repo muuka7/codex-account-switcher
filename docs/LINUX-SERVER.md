@@ -62,7 +62,23 @@ npm run server -- --host dev-server login work
 
 The first account operation creates a passphrase-encrypted vault and asks you to confirm a new passphrase of at least 12 characters. Subsequent credential operations prompt again. The passphrase is hidden, stays out of shell arguments and persistent settings, and is never sent to the desktop renderer. There is no forgotten-passphrase recovery; preserve an encrypted backup or sign in again.
 
-`import-current` only encrypts a copy of the server's file login. `login` runs the official `codex login --device-auth` in a private staging home, validates account/workspace and email, and saves it without changing the active login. Enable device login for the account/workspace if required. ChatGPT file logins are supported; API-key-only accounts are outside this first version.
+`import-current` only encrypts a copy of the server's file login. `login` uses the official Codex App Server device-code flow in a private staging home, validates account/workspace and email, and saves it without changing the active login. It prints the official verification URL and one-time code to your terminal. Enable device login for the account/workspace if required and use a current Codex CLI. ChatGPT file logins are supported; API-key-only accounts are outside this first version.
+
+## Desktop controls
+
+Choose a server under **Accounts on**, or open **Servers…** to save an SSH alias or add a hostname, user and port manually. Discovery reads SSH config and includes locally; selecting **Connect** is the first network operation. Root and ordinary-user aliases remain separate. The desktop uses your OpenSSH agent and existing host-key verification; establish an unfamiliar host's trusted key in your terminal first.
+
+**Set up server helper** installs the source-only archive and two pinned dependencies as the SSH user. It preserves existing vaults, live credentials and running Codex processes. Updates use an atomic release symlink. No daemon or public HTTP listener is installed.
+
+The live panel reads the existing daemon and retains every quota pool, duration, observation time and reset timestamp. It stays separate from saved account cards when Codex does not expose the daemon's workspace ID. A selected card describes `auth.json`, which does not prove that every running client adopted that account.
+
+**Save current login** encrypts a snapshot on the server. **Add account** shows the official OpenAI URL and one-time device code; complete sign-in in your browser. The login is staged privately and does not switch the live account. **Refresh saved usage**, **Re-authenticate** and **Switch** enforce the same quiet-server and identity checks as the CLI. After switching, reconnect Codex and confirm the runtime's actual account.
+
+For a new desktop-managed vault, the app generates an installation-specific random key and protects it with macOS Keychain or Windows credential encryption before sending it through SSH stdin. Stored keys and account tokens are not returned to the renderer. Keep this computer's protected application data: there is no forgotten-key recovery. Removing a saved server shortcut does not delete its vault or protected key.
+
+**Terminal access…** can explicitly copy this key to the clipboard for the helper's hidden passphrase prompt or your password manager. The dialog explains that the key unlocks all saved server accounts. This is a separate action from **Copy code**, which copies only the current one-time browser sign-in code. Neither action reads your clipboard or copies automatically. Keep vault keys out of shell arguments, environment variables and logs.
+
+For a vault created with a CLI passphrase, choose **Unlock vault…** and enter that existing passphrase. The password input is cleared immediately upon submission. The main process verifies it through SSH before protecting it locally; verification does not change the server vault or live login. This also lets a second computer unlock a desktop-created vault using its existing key. Both entry points manage the same encrypted vault. Read-only CLI `live` and `list` never require its key.
 
 ## Refresh inactive accounts and switch
 

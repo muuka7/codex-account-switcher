@@ -1,6 +1,30 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+async function remoteInvoke(channel, ...args) {
+  const response = await ipcRenderer.invoke(channel, ...args);
+  if (!response.ok) throw Object.assign(new Error(response.error.message), { code: response.error.code });
+  return response.value;
+}
+
 contextBridge.exposeInMainWorld('codexSwitcher', Object.freeze({
+  remote: Object.freeze({
+    servers: () => remoteInvoke('remote:servers'),
+    add: value => remoteInvoke('remote:add', value),
+    remove: host => remoteInvoke('remote:remove', host),
+    snapshot: host => remoteInvoke('remote:snapshot', host),
+    install: host => remoteInvoke('remote:install', host),
+    mutate: (host, method, label) => remoteInvoke('remote:mutate', host, method, label),
+    cancel: host => remoteInvoke('remote:cancel', host),
+    copyCode: host => remoteInvoke('remote:copy-code', host),
+    unlock: (host, passphrase) => remoteInvoke('remote:unlock', host, passphrase),
+    copyVaultKey: host => remoteInvoke('remote:copy-vault-key', host),
+    openLogin: () => remoteInvoke('remote:open-login'),
+    onEvent: callback => {
+      const listener = (_event, event) => callback(event);
+      ipcRenderer.on('remote:event', listener);
+      return () => ipcRenderer.removeListener('remote:event', listener);
+    },
+  }),
   getState: () => ipcRenderer.invoke('state:get'),
   getLiveAccount: () => ipcRenderer.invoke('state:live'),
   importCurrent: (name) => ipcRenderer.invoke('account:import-current', name),
