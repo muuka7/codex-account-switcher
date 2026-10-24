@@ -2,6 +2,13 @@
 
 Reviewed: 21 October 2026. Scope: targeted source review, not a full security audit or deployment approval.
 
+**Historical assessment:** This document reviews third-party candidates, not the
+repository implementation completed on 24 October 2026. The subsequent decision
+was to extend this repo for shared CLI/desktop management. See [implementation,
+safety fixes and verification](REMOTE-DESKTOP-IMPLEMENTATION.md) for the current
+solution. Statements about deployment and the preferred direction below apply
+to the original review date.
+
 ## Decision
 
 Do not deploy `xjoker/codex-switch` against the live shared `/home/developer/.codex` with its default behavior. The previous suggestion to disable daemon restarting was incomplete: it prevents an interruption but does not synchronize the account held by running Codex processes or prevent competing credential writes.

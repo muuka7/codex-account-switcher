@@ -1,6 +1,8 @@
 # Security model
 
-This application is intentionally narrow: it switches the local authentication state used by the official Codex desktop app on macOS and Windows.
+This application manages the authentication state used by the official Codex
+runtime: local accounts on macOS/Windows and saved Linux server accounts through
+an SSH helper. Local and remote stores use different encryption mechanisms.
 
 ## Supported versions
 
@@ -16,11 +18,11 @@ Older release lines are not maintained unless a release note says otherwise.
 
 ## Security guarantees
 
-- Saved account credentials are encrypted with Electron `safeStorage`, which uses macOS Keychain-backed protection on macOS and Windows DPAPI-backed protection on Windows.
+- Local saved account credentials are encrypted with Electron `safeStorage`, which uses macOS Keychain-backed protection on macOS and Windows DPAPI-backed protection on Windows. Server saved credentials use a separate scrypt/AES-256-GCM vault.
 - The renderer has `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`, and `webSecurity: true`.
 - The renderer is denied all HTTP(S) and WebSocket requests.
 - External navigation and popup windows are denied.
-- The UI receives only non-secret account metadata and sanitized rate-limit data (remaining percentage, window duration, reset time, freshness, and error category).
+- Stored account tokens and vault keys never appear in UI responses. The UI receives account metadata and sanitized rate-limit data. Remote enrollment also displays the official verification URL and current one-time code. A user-entered existing vault passphrase briefly occupies a password input, which is cleared on submission.
 - Credential files are written atomically with restrictive local file modes where supported by the platform.
 - Before saving a live credential, both its account/workspace and email must match the saved profile. A different or unidentified login is rejected without replacing the snapshot. This also applies before and after active-account usage checks.
 - Before switching away, the matching current `auth.json` is written back into its encrypted profile so rotated refresh tokens are preserved.
@@ -30,7 +32,7 @@ Older release lines are not maintained unless a release note says otherwise.
 - An OS-encrypted rollback backup is made before replacing the active credential.
 - Electron runtime features not required by the app are disabled using Electron Fuses during packaging.
 
-## Usage checks
+## Local usage checks
 
 Usage refreshes contact Codex services through the bundled Codex App Server.
 The renderer remains network-denied. An inactive account is decrypted only in
@@ -38,7 +40,41 @@ the main process, copied into a unique temporary Codex home for the request, and
 removed after the App Server exits. If Codex rotates that account's credentials,
 the refreshed snapshot is accepted only after its account identity matches and
 is then encrypted back into the vault. Tokens and raw App Server output are not
-sent to the renderer or written to the usage cache.
+sent to the renderer or written to the usage cache. A failed usage request can
+still rotate tokens: the newest credentials are preserved before cleanup, and
+a private recovery home is retained when persistence or owned-process shutdown
+fails. Such homes are not automatically swept on startup.
+
+## Remote SSH boundary
+
+The desktop main process runs OpenSSH with normal host-key verification and
+batch authentication. A fixed, bounded JSON-lines protocol over SSH stdin/stdout
+exposes helper operations and sanitized metadata. The renderer has no SSH or
+network access. Server installation runs without sudo and does not restart
+Codex, change the server config or expose a public listener.
+
+For desktop-created vaults, the main process protects an installation-specific
+random vault key with OS encryption before sending it through SSH stdin. An
+existing CLI passphrase is verified against the server vault before local
+encrypted persistence. Aliases for one installation share the same protected
+key. There is no forgotten-key recovery.
+
+Clipboard writes require an explicit action. **Copy code** writes only the
+current active device-login code. **Terminal access…** separately verifies and
+copies the full vault key for the helper's hidden prompt or a password manager;
+that key grants access to every saved account in the server vault. These
+operations do not read the clipboard or return the vault key to the renderer.
+
+Live usage is read from an existing private daemon socket without starting a
+replacement daemon. Saved-account refresh and switching require a quiet server;
+the helper does not stop arbitrary client processes. Switching validates account
+and workspace identity, preserves outgoing credentials, journals the transaction
+inside the encrypted vault, rechecks the live file and replaces it atomically.
+The selected auth file does not prove every running session adopted that login.
+Reconnect clients and verify their actual identity after a supervised switch.
+
+The implementation's review findings, fixes and verification boundaries are
+recorded in [Remote desktop integration and verification](docs/REMOTE-DESKTOP-IMPLEMENTATION.md).
 
 ## Update trust boundary
 

@@ -20,6 +20,34 @@ readings, account enrollment through official browser device login, and
 supervised switching. See the Linux guide for quiet-server requirements and
 shared desktop/terminal vault access and recovery requirements.
 
+For the completed feature summary, architecture, safety fixes and tested build
+provenance, see [Remote desktop integration and verification](docs/REMOTE-DESKTOP-IMPLEMENTATION.md).
+
+### Manage accounts on an SSH server
+
+1. Open **Servers…**, choose a discovered SSH alias, or add a hostname, user and
+   port manually. Connect as the ordinary Linux user who runs Codex.
+2. Choose **Set up server helper** (or **Update helper**) to install the helper
+   without sudo. Existing server logins and vaults are preserved.
+3. Choose **Save current login** to save the server's existing account, then
+   **Add account** for another account. **Copy code** copies the one-time code
+   for the official browser sign-in; enrollment leaves the current login selected.
+4. Use **Refresh live usage** while working. To refresh saved accounts or switch,
+   finish work, disconnect desktop SSH connections and terminal Codex sessions,
+   stop any remaining server Codex daemon, and prevent automatic reconnects
+   throughout the operation. The server must explicitly use
+   `cli_auth_credentials_store = "file"`.
+5. Choose **Refresh saved usage** or confirm **Switch to this account**. After a
+   switch, reconnect Codex and verify its actual account before continuing work.
+
+**Terminal access…** lets you explicitly copy the desktop-created vault key for
+the CLI's hidden passphrase prompt. **Unlock vault…** accepts an existing CLI
+passphrase. The vault key unlocks every saved account on that server; keep it out
+of commands, environment variables and logs. Full commands and recovery steps
+are in the [Linux guide](docs/LINUX-SERVER.md).
+
+### Local desktop behavior
+
 The desktop supports macOS and Windows. It expects Codex authentication at `~/.codex/auth.json` / `%USERPROFILE%\.codex\auth.json` (or `$CODEX_HOME/auth.json`). The official Codex runtime remains responsible for authentication.
 
 Each saved account card can show the remaining five-hour and weekly capacity
