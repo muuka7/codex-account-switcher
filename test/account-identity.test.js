@@ -32,8 +32,8 @@ async function desktop(t, readLimits = async () => ({}), primary = true) {
     __dirname: path.dirname(sourcePath),
     process: { platform: 'darwin', env: { CODEX_HOME: home } },
     require: name => name === 'electron' ? {
-      app, safeStorage: { isEncryptionAvailable: () => true, encryptString: value => Buffer.from(`protected:${value}`) },
-    } : name === './codex-app-server' ? { readRateLimits: () => readLimits({ home, store }) } : nativeRequire(name),
+      app, safeStorage: { isEncryptionAvailable: () => true, encryptString: value => Buffer.from(`protected:${value}`), decryptString: value => value.toString().slice('protected:'.length) },
+    } : name === './codex-app-server' ? { readRateLimits: options => readLimits({ home, store, ...options }) } : nativeRequire(name),
   };
   vm.runInNewContext(`${await fs.readFile(sourcePath, 'utf8')}\nthis.api = { probeSavedAccount, saveActiveCredential };`, sandbox, { filename: sourcePath });
   return { ...sandbox.api, home, store, startup: () => startup(), events, quitCount: () => quitCount };
@@ -100,4 +100,29 @@ test('a second instance exits before initialization or credential operations', a
   assert.equal(api.quitCount(), 1);
   await api.startup();
   assert.deepEqual(await fs.readdir(api.home), []);
+});
+
+test('a failed inactive-account usage request preserves rotated credentials before cleanup', async t => {
+  const original = auth('first@example.test'), rotated = auth('first@example.test', 'workspace-A', 'rotated-after-failure');
+  let stage;
+  const api = await desktop(t, async ({ codexHome }) => {
+    stage = codexHome; await fs.writeFile(path.join(stage, 'auth.json'), rotated);
+    throw Object.assign(new Error('quota failed'), { code: 'RATE_LIMITS_READ_FAILED' });
+  });
+  const account = { id: 'profile-A', identity: deriveIdentity(original) };
+  const blob = path.join(api.store, 'vault/profile-A.secure');
+  await fs.writeFile(blob, `protected:${original.toString('base64')}`);
+  await assert.rejects(api.probeSavedAccount(account, { activeId: 'another-profile' }), { code: 'RATE_LIMITS_READ_FAILED' });
+  assert.equal(await fs.readFile(blob, 'utf8'), `protected:${rotated.toString('base64')}`);
+  await assert.rejects(fs.stat(stage), { code: 'ENOENT' });
+});
+
+test('a usage process that cannot stop retains its staging credentials for recovery', async t => {
+  const original = auth('first@example.test'); let stage;
+  const api = await desktop(t, async ({ codexHome }) => { stage = codexHome; throw Object.assign(new Error('still writing'), { code: 'APP_SERVER_STOP_FAILED' }); });
+  t.after(async () => { if (stage) await fs.rm(stage, { recursive: true, force: true }); });
+  const account = { id: 'profile-A', identity: deriveIdentity(original) };
+  await fs.writeFile(path.join(api.store, 'vault/profile-A.secure'), `protected:${original.toString('base64')}`);
+  await assert.rejects(api.probeSavedAccount(account, {}), { code: 'APP_SERVER_STOP_FAILED' });
+  assert.deepEqual(await fs.readFile(path.join(stage, 'auth.json')), original);
 });

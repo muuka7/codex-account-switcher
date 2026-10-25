@@ -60,6 +60,8 @@ function allBucketsFromResult(result = {}) {
 
 function normalizeError(error) {
   const allowedCodes = new Set([
+    'PERSIST_FAILED',
+    'APP_SERVER_STOP_FAILED',
     'APP_SERVER_ERROR',
     'APP_SERVER_TIMEOUT',
     'APP_SERVER_START_FAILED',
@@ -74,6 +76,8 @@ function normalizeError(error) {
   ]);
   const code = allowedCodes.has(error?.code) ? error.code : 'USAGE_CHECK_FAILED';
   const messages = {
+    PERSIST_FAILED: 'Refreshed credentials could not be encrypted. A private recovery copy was retained; resolve storage before retrying.',
+    APP_SERVER_STOP_FAILED: 'A usage-check process could not be stopped. Its private recovery directory was retained.',
     RUNTIME_MISSING: 'Usage runtime unavailable. Reinstall or update the switcher.',
     RUNTIME_UNSUPPORTED: 'Usage checks are not supported on this device.',
     APP_SERVER_TIMEOUT: 'Usage check timed out. Try again.',

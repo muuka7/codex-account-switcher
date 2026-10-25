@@ -1,6 +1,6 @@
 # Codex Account Switcher
 
-Local account switcher for the Codex desktop app on macOS and Windows.
+Codex account switcher for macOS and Windows, with a headless Linux helper over SSH.
 
 ## Goals
 
@@ -14,9 +14,41 @@ Local account switcher for the Codex desktop app on macOS and Windows.
 A headless Linux CLI is available for SSH host discovery, saved server shortcuts,
 encrypted account storage, live daemon usage and supervised account switching.
 Start with `npm run server -- servers`. See [Linux and SSH setup](docs/LINUX-SERVER.md).
-The desktop UI remains local in this version; server account cards are a later step.
+The 0.3.0 development desktop adds **Accounts on** and **Servers…** controls for
+SSH discovery, manual server setup, helper installation, live quota/reset
+readings, account enrollment through official browser device login, and
+supervised switching. See the Linux guide for quiet-server requirements and
+shared desktop/terminal vault access and recovery requirements.
 
-The 0.2.2 development line supports macOS and Windows. It expects Codex authentication at `~/.codex/auth.json` / `%USERPROFILE%\.codex\auth.json` (or `$CODEX_HOME/auth.json`). The official Codex desktop app remains responsible for authentication.
+For the completed feature summary, architecture, safety fixes and tested build
+provenance, see [Remote desktop integration and verification](docs/REMOTE-DESKTOP-IMPLEMENTATION.md).
+
+### Manage accounts on an SSH server
+
+1. Open **Servers…**, choose a discovered SSH alias, or add a hostname, user and
+   port manually. Connect as the ordinary Linux user who runs Codex.
+2. Choose **Set up server helper** (or **Update helper**) to install the helper
+   without sudo. Existing server logins and vaults are preserved.
+3. Choose **Save current login** to save the server's existing account, then
+   **Add account** for another account. **Copy code** copies the one-time code
+   for the official browser sign-in; enrollment leaves the current login selected.
+4. Use **Refresh live usage** while working. To refresh saved accounts or switch,
+   finish work, disconnect desktop SSH connections and terminal Codex sessions,
+   stop any remaining server Codex daemon, and prevent automatic reconnects
+   throughout the operation. The server must explicitly use
+   `cli_auth_credentials_store = "file"`.
+5. Choose **Refresh saved usage** or confirm **Switch to this account**. After a
+   switch, reconnect Codex and verify its actual account before continuing work.
+
+**Terminal access…** lets you explicitly copy the desktop-created vault key for
+the CLI's hidden passphrase prompt. **Unlock vault…** accepts an existing CLI
+passphrase. The vault key unlocks every saved account on that server; keep it out
+of commands, environment variables and logs. Full commands and recovery steps
+are in the [Linux guide](docs/LINUX-SERVER.md).
+
+### Local desktop behavior
+
+The desktop supports macOS and Windows. It expects Codex authentication at `~/.codex/auth.json` / `%USERPROFILE%\.codex\auth.json` (or `$CODEX_HOME/auth.json`). The official Codex runtime remains responsible for authentication.
 
 Each saved account card can show the remaining five-hour and weekly capacity
 reported by Codex, together with the server-provided reset time. A refresh reads
@@ -30,13 +62,14 @@ Codex on its own, never submits a continuation turn, and never approves a
 pending action. After destination verification, Codex reopens for supervised
 continuation.
 
-Current Codex releases may use an OS/native credential store by default. To make `auth.json` switching authoritative, the switcher ensures the top-level `config.toml` setting contains:
+Current Codex releases may use an OS/native credential store by default. To make `auth.json` switching authoritative, the local desktop switcher ensures the top-level `config.toml` setting contains:
 
 ```toml
 cli_auth_credentials_store = "file"
 ```
 
 If `config.toml` already exists and needs changing, the switcher creates a timestamped `config.toml.codex-switcher-backup-*` copy before modifying it.
+The Linux helper requires this setting explicitly and does not change the server's config.
 
 ## Install
 

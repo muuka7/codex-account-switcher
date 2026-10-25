@@ -4,6 +4,35 @@ Notable changes to Codex Account Switcher. Dates are ISO-8601.
 
 ## Unreleased
 
+### Remote accounts — 0.3.0 candidate
+
+- Added SSH server discovery, manual server setup, live daemon quotas and reset
+  windows, saved server account controls and official device-code login to the
+  desktop. Server keys remain protected by the operating system; tokens remain
+  on the server.
+- Added explicit click-to-copy for the active device sign-in code, with copied
+  feedback and no clipboard reads. Fixed SSH include discovery on Windows and
+  added native-platform checks for SSH configuration and transport.
+- Added verified unlocking of terminal-created vaults and explicit terminal
+  key copying, so the desktop and CLI can manage the same saved accounts.
+- Added a bounded, versioned SSH protocol and a source-only packaged helper
+  archive with pinned dependencies and release integrity checks.
+- Preserve credentials rotated by unsuccessful usage requests, retain private
+  recovery copies when saving or child shutdown fails, and stop helper-owned
+  process groups before removing staging data.
+- Added `build:signed:mac` for locally signed and notarized test builds without
+  creating tags or publishing a release. Prepared version 0.3.0.
+- Verified the installed Linux helper and signed desktop with two real accounts:
+  current-account import, browser enrollment, saved quota/reset refresh, and a
+  supervised A→B→A switch checked independently through the server Codex runtime.
+  Verified exact sign-in-code copying and cancellation without changing live auth.
+- Validated runtime commit `21bbb949e58c` with 71 local tests, 25 selected Linux
+  tests, clean dependency audits, macOS/Windows packaging CI, and locally signed
+  and notarized x64/arm64 Mac builds. These are candidate verification results,
+  not a published 0.3.0 release. See the integration document for scope and limits.
+
+### Other unreleased work
+
 - Avoided duplicate branch/PR CI runs, limited dependency-cache saves to `main`,
   and added automatic cleanup for closed pull-request caches.
 

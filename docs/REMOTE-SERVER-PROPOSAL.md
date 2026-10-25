@@ -1,6 +1,14 @@
 # Research: remote Codex account management
 
-Research date: 21 October 2026. Status: proposal; no server configuration or login changes deployed.
+Research date: 21 October 2026. Historical proposal; deployment statements below
+describe that research date.
+
+**Implementation update — 24 October 2026:** The chosen solution extends this
+repository with a shared Linux helper and desktop SSH controls. It has been
+installed and tested with two accounts, independent usage/reset checks and a
+supervised A→B→A switch. See [completed changes and verification](REMOTE-DESKTOP-IMPLEMENTATION.md)
+and the [current operating guide](LINUX-SERVER.md). The prebuilt shortlist and
+recommendations below are retained as historical research, not current setup instructions.
 
 **Safety review update:** Do not trial a switcher directly against the live shared Codex home yet. A targeted source review favors an isolated, usage-only evaluation of ccswap first; disabling xjoker/codex-switch's daemon restart alone is insufficient. See [the safety findings and revised rollout](REMOTE-SERVER-SAFETY-REVIEW.md). The original shortlist below is retained as research context.
 
@@ -53,7 +61,8 @@ covers every client. Never copy real credentials into documentation or fixtures.
 
 This historical proposal informed the implemented headless helper. See
 [Linux and SSH accounts](LINUX-SERVER.md) for its actual installation, supported
-commands, process checks and recovery behavior. Desktop cards remain local.
+commands, process checks and recovery behavior. The desktop now also shows and
+manages server account cards over SSH.
 
 ## Supported building blocks
 
