@@ -4,6 +4,36 @@ Notable changes to Codex Account Switcher. Dates are ISO-8601.
 
 ## Unreleased
 
+### Interface refresh
+
+- Redesigned the desktop interface: the active account now leads as a hero card
+  with ring gauges, other accounts sit in a responsive grid with larger usage
+  bars and plain-language status ("Plenty left", "Running low", "Almost out"),
+  and plan, credential freshness and handoff group are separate tags instead of
+  one run-on line.
+- New indigo/violet brand palette defined once with `light-dark()` (replacing the
+  triplicated light/dark/media-query palettes), refreshed buttons, notices,
+  dialogs and menus, and entrance motion that plays on first load only.
+- Settings now has a section sidebar with scroll tracking; the server view uses
+  the same card layout, with the selected server account as its hero.
+- Added a backdrop behind the device sign-in dialog. No behavior, IPC or storage
+  changes; all existing element IDs are preserved.
+- Helps choose which account to use: when the active account is at or below 25%
+  on its tightest limit and another has real headroom, a banner offers the
+  switch; the clear leader among the others is marked "Best available".
+  Switching onto an account at 10% or less is muted and asks first.
+- Reset times read as countdowns ("Resets in 2h 24m") that tick while the app is
+  open; the absolute time stays in the tooltip.
+- Failed usage checks replace the empty bars with the message and the one fix
+  that applies: Re-authenticate for credential errors, Retry otherwise.
+- Quieter cards: the credential-freshness tag shows only when a login is aging
+  or stale, the shortcut appears on hover/focus and in the account menu, and the
+  active account's card carries a primary "Open Codex" action.
+- New states: switching in progress (ringed card, spinner, dimmed siblings), a
+  toast with Undo in place of the green banner, a loading skeleton for usage,
+  and a prompt to add a second account when only one is saved. Long names wrap
+  to two lines and emails truncate with a tooltip.
+
 ### Remote accounts — 0.3.0 candidate
 
 - Added SSH server discovery, manual server setup, live daemon quotas and reset

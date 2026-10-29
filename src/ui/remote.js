@@ -17,11 +17,11 @@ function remoteWindowLabel(window) {
   if (minutes === 10080) return 'Weekly';
   return minutes % 60 === 0 ? `${minutes / 60}h window` : `${minutes}m window`;
 }
-function renderRemoteUsage(target, usage, name) {
+function renderRemoteUsage(target, usage, name, ring = false) {
   target.replaceChildren();
   for (const bucket of usage?.buckets || []) {
     for (const window of [bucket.primary, bucket.secondary].filter(Boolean)) {
-      target.append(quotaRail(`${bucket.name || bucket.id} · ${remoteWindowLabel(window)}`, window, name));
+      target.append(quotaRail(`${bucket.name || bucket.id} · ${remoteWindowLabel(window)}`, window, name, { ring }));
     }
   }
   if (!target.childNodes.length) target.append(remoteNode('p', 'remote-copy', 'Usage has not been read for this account.'));
@@ -66,19 +66,49 @@ function renderRemote() {
   el('remote-terminal').hidden = !doctor.vaultExists;
   el('remote-terminal').textContent = snapshot.keyAvailable ? 'Terminal access…' : 'Unlock vault…';
   const accounts = snapshot.state?.accounts || []; el('remote-empty').hidden = accounts.length > 0;
-  el('remote-accounts').replaceChildren(...accounts.map(account => {
-    const card = remoteNode('section', 'card remote-card');
-    card.append(remoteNode('h3', '', account.label));
-    card.append(remoteNode('p', 'remote-copy', `${account.identity.email || 'Unknown email'} · ${account.identity.planType || 'Plan unknown'}${account.isSelected ? ' · Selected in server auth file' : ''}`));
-    // Workspace identifiers are shown so two logins with the same email can
-    // be distinguished without treating email alone as proof of identity.
-    card.append(remoteNode('p', 'remote-copy', `Workspace: ${account.identity.accountId || 'unknown'}`));
-    const usage = remoteNode('div', 'remote-quotas'); renderRemoteUsage(usage, account.usage, account.label); card.append(usage);
-    const actions = remoteNode('div', 'remote-actions');
-    actions.append(remoteButton(account.isSelected ? 'Selected' : 'Switch to this account', () => switchRemoteAccount(account), !canMutate || account.isSelected || doctor.running.length > 0 || !doctor.fileStoreReady));
-    actions.append(remoteButton('Re-authenticate', () => beginRemoteName('reauth', account.label), !canMutate || doctor.running.length > 0));
-    card.append(actions); return card;
-  }));
+  el('remote-accounts').replaceChildren(...accounts.map((account, position) => ({ account, position }))
+    .sort((a, b) => Number(Boolean(b.account.isSelected)) - Number(Boolean(a.account.isSelected)))
+    .map(({ account, position }) => remoteAccountCard(account, position, canMutate, doctor)));
+}
+/* Server accounts share the local card grammar: the login the server is using
+   leads as the hero, the rest sit in the grid. */
+function remoteAccountCard(account, position, canMutate, doctor) {
+  const selected = Boolean(account.isSelected);
+  const card = remoteNode('div', `acct${selected ? ' is-active' : ''}`);
+  const top = remoteNode('div', 'acct-top');
+  const avatar = remoteNode('span', `avatar tone-${position % 4}`, initials(account.label));
+  avatar.setAttribute('aria-hidden', 'true');
+  const copy = remoteNode('span', 'acct-copy'), nameRow = remoteNode('span', 'acct-name');
+  nameRow.append(remoteNode('strong', '', account.label));
+  if (selected) {
+    const chip = remoteNode('span', 'chip chip-ok');
+    chip.append(remoteNode('span', 'dot'), document.createTextNode('Selected'));
+    chip.title = 'Selected in the server auth file';
+    nameRow.append(chip);
+  }
+  copy.append(nameRow, remoteNode('span', 'acct-meta', account.identity.email || 'Unknown email'));
+  top.append(avatar, copy);
+
+  // Workspace identifiers are shown so two logins with the same email can
+  // be distinguished without treating email alone as proof of identity.
+  const tags = remoteNode('div', 'acct-tags');
+  tags.append(remoteNode('span', 'chip chip-accent', account.identity.planType || 'Plan unknown'));
+  const workspace = remoteNode('span', 'chip mono', `Workspace ${account.identity.accountId || 'unknown'}`);
+  workspace.title = 'Workspace identifier';
+  tags.append(workspace);
+
+  const usage = remoteNode('div', 'acct-usage');
+  renderRemoteUsage(usage, account.usage, account.label, selected);
+
+  const foot = remoteNode('div', 'acct-foot');
+  foot.append(remoteButton('Re-authenticate', () => beginRemoteName('reauth', account.label), !canMutate || doctor.running.length > 0));
+  if (!selected) {
+    const switchBtn = remoteButton('Switch to this account', () => switchRemoteAccount(account), !canMutate || doctor.running.length > 0 || !doctor.fileStoreReady);
+    switchBtn.classList.add('btn-switch');
+    foot.append(switchBtn);
+  }
+  card.append(top, tags, usage, foot);
+  return card;
 }
 function remoteError(error) {
   el('remote-error').textContent = error?.message || 'The server operation failed.'; el('remote-error').hidden = false;
@@ -98,6 +128,7 @@ async function loadRemote(host = remoteHost) {
 async function selectRemote(host) {
   if (remoteBusy) return;
   remoteHost = host; el('account-location').value = host;
+  el('location-icon').innerHTML = codexIcon(host ? 'server' : 'monitor');
   el('local-view').hidden = Boolean(host); el('remote-view').hidden = !host;
   // Local shortcuts/settings continue to refer to this computer only.
   el('open-codex').hidden = Boolean(host);
