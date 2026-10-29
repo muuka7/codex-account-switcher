@@ -13,9 +13,9 @@ const el = (id) => document.getElementById(id);
 
 const THEME_KEY = 'codex-switcher-theme';
 const THEMES = [
-  { id: 'system', label: 'System' },
-  { id: 'light', label: 'Light' },
-  { id: 'dark', label: 'Dark' },
+  { id: 'system', label: 'System', icon: 'monitor' },
+  { id: 'light', label: 'Light', icon: 'sun' },
+  { id: 'dark', label: 'Dark', icon: 'moon' },
 ];
 
 function readTheme() {
@@ -78,8 +78,8 @@ function formatRelative(value) {
 }
 
 function healthText(health) {
-  if (!health || health.level === 'unknown') return 'freshness unknown';
-  return `${health.label.toLowerCase()} · saved ${formatRelative(health.updatedAt)}`;
+  if (!health || health.level === 'unknown') return 'Freshness unknown';
+  return `${health.label} · ${formatRelative(health.updatedAt)}`;
 }
 
 const RESET_TIME = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -94,19 +94,81 @@ function formatReset(epochSeconds) {
     : `Resets ${RESET_DATE_TIME.format(reset)}`;
 }
 
+/** "Resets in 2h 14m" — the absolute time stays available as a tooltip. */
+function formatCountdown(epochSeconds) {
+  if (epochSeconds === null || epochSeconds === undefined || !Number.isFinite(Number(epochSeconds))) return 'Reset time unavailable';
+  const ms = Number(epochSeconds) * 1000 - Date.now();
+  if (ms <= 0) return 'Reset due — refresh usage';
+  const mins = Math.ceil(ms / 60000);
+  if (mins < 60) return `Resets in ${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `Resets in ${hours}h${mins % 60 ? ` ${mins % 60}m` : ''}`;
+  const days = Math.floor(hours / 24);
+  return `Resets in ${days}d${hours % 24 ? ` ${hours % 24}h` : ''}`;
+}
+
+setInterval(() => {
+  document.querySelectorAll('.quota-reset[data-reset]').forEach((node) => { node.textContent = formatCountdown(node.dataset.reset); });
+}, 30000);
+
+const LOW_PERCENT = 25;
+const CRITICAL_PERCENT = 10;
+
+function remainingOf(window) {
+  return window && window.remainingPercent !== null && window.remainingPercent !== undefined && Number.isFinite(Number(window.remainingPercent))
+    ? Math.min(100, Math.max(0, Number(window.remainingPercent)))
+    : null;
+}
+
+/** The limit that will run out first: { pct, label } or null when unknown. */
+function limitingWindow(account) {
+  const snapshot = currentRateLimits.accounts?.[account.id];
+  if (!snapshot || snapshot.status === 'error') return null;
+  const five = remainingOf(snapshot.fiveHour);
+  const week = remainingOf(snapshot.weekly);
+  if (five === null && week === null) return null;
+  if (week === null || (five !== null && five <= week)) return { pct: five, label: '5-hour' };
+  return { pct: week, label: 'weekly' };
+}
+
+/** Best account to switch to, judged by headroom on its tightest limit. */
+function rankAlternatives(state) {
+  return state.accounts
+    .filter((account) => !(account.isActive && !state.pendingLogin))
+    .map((account) => ({ account, limit: limitingWindow(account) }))
+    .filter((entry) => entry.limit)
+    .sort((a, b) => b.limit.pct - a.limit.pct);
+}
+
+/** One account is called out as "Best available" only when it clearly leads. */
+function bestAvailableId(state) {
+  const ranked = rankAlternatives(state);
+  if (!ranked.length) return null;
+  const [best, second] = ranked;
+  if (best.limit.pct < 40) return null;
+  if (second && best.limit.pct - second.limit.pct < 5) return null;
+  if (!second) return null;
+  return best.account.id;
+}
+
 function percentText(value) {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
   const rounded = Math.round(Number(value) * 10) / 10;
   return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`;
 }
 
-function quotaRail(label, window, accountName) {
+const QUOTA_WORDS = { healthy: 'Plenty left', low: 'Running low', critical: 'Almost out', unknown: 'Not available' };
+
+/**
+ * One usage window. The default is a bar with the number beside it; `ring`
+ * is the larger gauge used for the active account. Both describe what
+ * remains, never what was spent. `loading` draws a skeleton while a check runs.
+ */
+function quotaRail(label, window, accountName, { ring = false, loading = false } = {}) {
   const node = document.createElement('div');
-  const remaining = window && window.remainingPercent !== null && window.remainingPercent !== undefined && Number.isFinite(Number(window.remainingPercent))
-    ? Math.min(100, Math.max(0, Number(window.remainingPercent)))
-    : null;
-  const tone = remaining === null ? 'unknown' : remaining <= 10 ? 'critical' : remaining <= 25 ? 'low' : 'healthy';
-  node.className = `quota quota-${tone}`;
+  const remaining = loading ? null : remainingOf(window);
+  const tone = remaining === null ? 'unknown' : remaining <= CRITICAL_PERCENT ? 'critical' : remaining <= LOW_PERCENT ? 'low' : 'healthy';
+  node.className = `quota quota-${tone}${ring ? ' quota-ring' : ''}${loading ? ' quota-loading' : ''}`;
 
   const head = document.createElement('div');
   head.className = 'quota-head';
@@ -114,47 +176,110 @@ function quotaRail(label, window, accountName) {
   name.className = 'quota-name';
   name.textContent = label;
   const value = document.createElement('strong');
-  value.textContent = remaining === null ? 'Not available' : `${percentText(remaining)} remaining`;
+  if (loading) {
+    value.textContent = ring ? 'Checking' : '00% left';
+  } else if (ring) {
+    value.textContent = QUOTA_WORDS[tone];
+  } else if (remaining === null) {
+    value.textContent = 'Not available';
+  } else {
+    const left = document.createElement('span');
+    left.textContent = ' left';
+    value.append(document.createTextNode(percentText(remaining)), left);
+  }
   head.append(name, value);
 
-  const track = document.createElement('div');
-  track.className = 'quota-track';
-  track.setAttribute('role', 'progressbar');
-  track.setAttribute('aria-label', `${label} usage remaining for ${accountName}`);
-  track.setAttribute('aria-valuemin', '0');
-  track.setAttribute('aria-valuemax', '100');
-  if (remaining !== null) track.setAttribute('aria-valuenow', String(Math.round(remaining)));
-  const fill = document.createElement('span');
-  fill.style.width = `${remaining ?? 0}%`;
-  track.append(fill);
+  const gauge = document.createElement('div');
+  gauge.setAttribute('role', 'progressbar');
+  gauge.setAttribute('aria-label', `${label} usage remaining for ${accountName}`);
+  gauge.setAttribute('aria-valuemin', '0');
+  gauge.setAttribute('aria-valuemax', '100');
+  if (loading) gauge.setAttribute('aria-busy', 'true');
+  else if (remaining !== null) gauge.setAttribute('aria-valuenow', String(Math.round(remaining)));
+  if (ring) {
+    gauge.className = 'ring';
+    gauge.style.setProperty('--p', String(remaining ?? 0));
+    const center = document.createElement('span');
+    center.className = 'ring-value';
+    if (loading) center.textContent = '';
+    else if (remaining === null) center.textContent = '—';
+    else {
+      const small = document.createElement('small');
+      small.textContent = '%';
+      center.append(document.createTextNode(percentText(remaining).replace('%', '')), small);
+    }
+    gauge.append(center);
+  } else {
+    gauge.className = 'quota-track';
+    const fill = document.createElement('span');
+    fill.style.width = `${remaining ?? 0}%`;
+    gauge.append(fill);
+  }
 
   const reset = document.createElement('span');
   reset.className = 'quota-reset';
-  reset.textContent = window ? formatReset(window.resetsAt) : 'Refresh to check';
-  node.append(head, track, reset);
+  if (loading) {
+    reset.textContent = 'Resets in 0h 00m';
+  } else if (window) {
+    reset.textContent = formatCountdown(window.resetsAt);
+    reset.title = formatReset(window.resetsAt);
+    if (window.resetsAt !== null && window.resetsAt !== undefined) reset.dataset.reset = String(window.resetsAt);
+  } else {
+    reset.textContent = 'Refresh to check';
+  }
+  node.append(...(ring ? [gauge, head, reset] : [head, gauge, reset]));
   return node;
 }
 
-function accountUsagePanel(account) {
+const REAUTH_CODES = new Set(['ACCOUNT_CREDENTIAL_MISSING', 'ACCOUNT_IDENTITY_MISMATCH']);
+
+/** A failed check says what happened and offers the one fix that applies. */
+function usageErrorBlock(account, snapshot) {
+  const node = document.createElement('div');
+  node.className = 'usage-error';
+  node.setAttribute('role', 'alert');
+  const icon = document.createElement('span');
+  icon.className = 'usage-error-icon';
+  icon.innerHTML = codexIcon('alert');
+  const text = document.createElement('span');
+  text.className = 'usage-error-text';
+  text.textContent = snapshot.error?.message || 'Usage could not be refreshed.';
+  const action = document.createElement('button');
+  action.type = 'button';
+  action.className = 'btn btn-sm';
+  if (REAUTH_CODES.has(snapshot.error?.code)) {
+    action.textContent = 'Re-authenticate';
+    action.disabled = Boolean(currentState?.pendingLogin);
+    action.setAttribute('aria-label', `Re-authenticate ${account.displayName}`);
+    action.addEventListener('click', () => reauth(account));
+  } else {
+    action.textContent = 'Retry';
+    action.setAttribute('aria-label', `Retry usage check for ${account.displayName}`);
+    action.addEventListener('click', refreshRateLimits);
+  }
+  node.append(icon, text, action);
+  return node;
+}
+
+function accountUsagePanel(account, ring = false) {
   const snapshot = currentRateLimits.accounts?.[account.id] || null;
   const node = document.createElement('div');
   node.className = 'acct-usage';
-  node.append(
-    quotaRail('5h', snapshot?.fiveHour, account.displayName),
-    quotaRail('Week', snapshot?.weekly, account.displayName),
-  );
 
   if (snapshot?.status === 'error') {
-    const note = document.createElement('span');
-    note.className = 'quota-note is-error';
-    note.textContent = snapshot.error?.message || 'Usage could not be refreshed.';
-    node.append(note);
-  } else if (snapshot?.status === 'refreshing') {
-    const note = document.createElement('span');
-    note.className = 'quota-note';
-    note.textContent = 'Checking this account…';
-    node.append(note);
+    node.classList.add('is-error');
+    node.append(usageErrorBlock(account, snapshot));
+    return node;
   }
+
+  const hasData = Boolean(snapshot?.fiveHour || snapshot?.weekly);
+  const refreshing = snapshot?.status === 'refreshing' || (currentRateLimits.refreshing && !snapshot);
+  const loading = refreshing && !hasData;
+  if (refreshing && hasData) node.classList.add('is-refreshing');
+  node.append(
+    quotaRail('5-hour', snapshot?.fiveHour, account.displayName, { ring, loading }),
+    quotaRail('Weekly', snapshot?.weekly, account.displayName, { ring, loading }),
+  );
   return node;
 }
 
@@ -329,6 +454,12 @@ function buildMenu(trigger, items) {
     const label = document.createElement('span');
     label.textContent = item.label;
     button.append(label);
+    if (item.hint) {
+      const hint = document.createElement('kbd');
+      hint.className = 'menu-hint';
+      hint.textContent = item.hint;
+      button.append(hint);
+    }
     button.addEventListener('click', () => { closeMenu(); item.run(); });
     node.append(button);
   });
@@ -342,21 +473,27 @@ function buildMenu(trigger, items) {
 
 const accountsEl = el('accounts');
 
-function accountCard(account, position, state) {
+function chipNode(text, className = '') {
+  const chip = document.createElement('span');
+  chip.className = `chip${className ? ` ${className}` : ''}`;
+  chip.textContent = text;
+  return chip;
+}
+
+function accountCard(account, position, state, { bestId = null } = {}) {
   const item = document.createElement('li');
   const active = account.isActive && !state.pendingLogin;
   item.className = `acct${active ? ' is-active' : ''}${account.isPendingReauth ? ' is-pending' : ''}`;
+  item.dataset.accountId = account.id;
 
-  const avatarWrap = document.createElement('span');
-  avatarWrap.className = 'avatar-wrap';
+  /* identity row: avatar · name + email · overflow menu */
+  const top = document.createElement('div');
+  top.className = 'acct-top';
+
   const avatar = document.createElement('span');
   avatar.className = `avatar tone-${position % 4}`;
   avatar.setAttribute('aria-hidden', 'true');
   avatar.textContent = initials(account.displayName);
-  const dot = document.createElement('span');
-  dot.className = `health-dot ${account.health?.level || 'unknown'}`;
-  dot.setAttribute('aria-hidden', 'true');
-  avatarWrap.append(avatar, dot);
 
   const copy = document.createElement('span');
   copy.className = 'acct-copy';
@@ -364,6 +501,7 @@ function accountCard(account, position, state) {
   nameRow.className = 'acct-name';
   const name = document.createElement('strong');
   name.textContent = account.displayName;
+  name.title = account.displayName;
   nameRow.append(name);
   if (active) {
     const chip = document.createElement('span');
@@ -372,52 +510,15 @@ function accountCard(account, position, state) {
     chip.append(document.createTextNode('Active'));
     nameRow.append(chip);
   } else if (account.isPendingReauth) {
-    const chip = document.createElement('span');
-    chip.className = 'chip chip-warn';
-    chip.textContent = 'Signing in';
-    nameRow.append(chip);
+    nameRow.append(chipNode('Signing in', 'chip-warn'));
   }
-  const handoffAccount = currentSettings?.guardedHandoff?.accounts?.[account.id];
-  if (currentSettings?.guardedHandoff?.enabled && handoffAccount?.enabled && handoffAccount.group) {
-    const group = document.createElement('span');
-    group.className = 'chip';
-    group.textContent = handoffAccount.group;
-    group.title = 'Guarded handoff continuity group';
-    nameRow.append(group);
-  }
-
   const meta = document.createElement('span');
   meta.className = 'acct-meta';
-  const identity = [account.email, account.planType].filter(Boolean).join(' · ') || 'Saved account';
-  meta.append(document.createTextNode(`${identity} · `));
-  const health = document.createElement('span');
-  health.className = `health-label ${account.health?.level || 'unknown'}`;
-  health.textContent = healthText(account.health);
-  meta.append(health);
+  meta.textContent = account.email || 'Saved account';
+  meta.title = account.email || '';
   copy.append(nameRow, meta);
 
-  const shortcut = document.createElement('kbd');
-  shortcut.className = 'acct-shortcut';
-  shortcut.textContent = prettyShortcut(shortcutFor(account, position));
-
-  const actions = document.createElement('span');
-  actions.className = 'acct-actions';
-
-  if (!active) {
-    const switchBtn = document.createElement('button');
-    switchBtn.type = 'button';
-    switchBtn.className = 'btn btn-switch';
-    switchBtn.dataset.blocksOnBusy = 'true';
-    switchBtn.innerHTML = codexIcon(account.isActive ? 'rotate' : 'arrow');
-    const label = document.createElement('span');
-    label.className = 'btn-label';
-    label.textContent = account.isActive ? 'Restore' : 'Switch';
-    switchBtn.append(label);
-    switchBtn.setAttribute('aria-label', `${account.isActive ? 'Restore' : 'Switch to'} ${account.displayName}`);
-    switchBtn.addEventListener('click', () => switchTo(account));
-    actions.append(switchBtn);
-  }
-
+  const shortcutText = prettyShortcut(shortcutFor(account, position));
   const anchor = document.createElement('span');
   anchor.className = 'menu-anchor';
   const more = document.createElement('button');
@@ -432,7 +533,7 @@ function accountCard(account, position, state) {
     if (openMenu && openMenu.trigger === more) { closeMenu(); return; }
     buildMenu(more, [
       { icon: 'rotate', label: 'Re-authenticate…', disabled: Boolean(state.pendingLogin), run: () => reauth(account) },
-      { icon: 'keyboard', label: 'Change shortcut…', run: () => openShortcutDialog(account, position) },
+      { icon: 'keyboard', label: 'Change shortcut…', hint: shortcutText, run: () => openShortcutDialog(account, position) },
       { separator: true },
       {
         icon: 'trash', label: 'Remove account…', danger: true,
@@ -442,15 +543,124 @@ function accountCard(account, position, state) {
     ]);
   });
   anchor.append(more);
-  actions.append(anchor);
+  top.append(avatar, copy, anchor);
 
-  item.append(avatarWrap, copy, shortcut, actions, accountUsagePanel(account));
+  /* tags: plan, and credential freshness only when it needs attention */
+  const tags = document.createElement('div');
+  tags.className = 'acct-tags';
+  if (account.id === bestId && !active && !account.isPendingReauth) {
+    const best = chipNode('Best available', 'chip-ok');
+    best.title = 'Most headroom on its tightest limit';
+    tags.append(best);
+  }
+  if (account.planType) tags.append(chipNode(account.planType, 'chip-accent'));
+  const level = account.health?.level || 'unknown';
+  if (level === 'aging' || level === 'stale') {
+    const health = document.createElement('span');
+    health.className = `chip is-${level}`;
+    health.title = account.health?.updatedAt
+      ? `Credential snapshot saved ${formatRelative(account.health.updatedAt)}`
+      : 'How recently this credential snapshot was refreshed';
+    const dot = document.createElement('span');
+    dot.className = `health-dot ${level}`;
+    dot.setAttribute('aria-hidden', 'true');
+    health.append(dot, document.createTextNode(healthText(account.health)));
+    tags.append(health);
+  }
+  const handoffAccount = currentSettings?.guardedHandoff?.accounts?.[account.id];
+  if (currentSettings?.guardedHandoff?.enabled && handoffAccount?.enabled && handoffAccount.group) {
+    const group = chipNode(handoffAccount.group);
+    group.title = 'Guarded handoff continuity group';
+    tags.append(group);
+  }
+
+  /* footer: the active account opens Codex; the rest switch to it */
+  const foot = document.createElement('div');
+  foot.className = 'acct-foot';
+  const shortcut = document.createElement('kbd');
+  shortcut.className = 'acct-shortcut';
+  shortcut.textContent = shortcutText;
+  shortcut.title = 'Keyboard shortcut — works anywhere';
+  if (active) {
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'btn btn-primary';
+    open.innerHTML = codexIcon('external');
+    open.append(document.createTextNode('Open Codex'));
+    open.addEventListener('click', () => run(null, async () => { await api.openCodex(); }));
+    foot.append(open, shortcut);
+  } else {
+    foot.append(shortcut);
+    const limit = limitingWindow(account);
+    const weak = Boolean(limit) && limit.pct <= CRITICAL_PERCENT;
+    const switchBtn = document.createElement('button');
+    switchBtn.type = 'button';
+    switchBtn.className = `btn btn-switch${weak ? ' is-weak' : ''}`;
+    switchBtn.dataset.blocksOnBusy = 'true';
+    switchBtn.innerHTML = codexIcon(account.isActive ? 'rotate' : 'arrow');
+    const label = document.createElement('span');
+    label.className = 'btn-label';
+    label.textContent = account.isActive ? 'Restore' : 'Switch';
+    switchBtn.append(label);
+    switchBtn.setAttribute('aria-label', `${account.isActive ? 'Restore' : 'Switch to'} ${account.displayName}`);
+    switchBtn.title = weak
+      ? `Only ${percentText(limit.pct)} of the ${limit.label} limit is left`
+      : `${account.isActive ? 'Restore' : 'Switch to'} ${account.displayName} (${shortcutText})`;
+    switchBtn.addEventListener('click', () => switchTo(account, { weak, limit }));
+    foot.append(switchBtn);
+  }
+
+  item.append(top);
+  if (tags.childElementCount) item.append(tags);
+  item.append(accountUsagePanel(account, active), foot);
   return item;
 }
 
+let enteringTimer = null;
+/** Entrance motion is for the first paint only; see `.is-entering` in styles.css. */
+function markEntering(state) {
+  if (enteringTimer !== null || !state.accounts.length) return;
+  accountsEl.classList.add('is-entering');
+  enteringTimer = setTimeout(() => accountsEl.classList.remove('is-entering'), 1400);
+}
+
 function renderAccounts(state) {
+  markEntering(state);
   accountsEl.replaceChildren();
-  state.accounts.forEach((account, position) => accountsEl.append(accountCard(account, position, state)));
+  const entries = state.accounts.map((account, position) => ({ account, position }));
+  const isHero = ({ account }) => account.isActive && !state.pendingLogin;
+  // The active account leads; `position` still drives its tone and shortcut.
+  const hero = entries.filter(isHero);
+  const rest = entries.filter((entry) => !isHero(entry));
+  const options = { bestId: bestAvailableId(state) };
+  hero.forEach(({ account, position }) => accountsEl.append(accountCard(account, position, state, options)));
+  if (hero.length && rest.length) {
+    const label = document.createElement('li');
+    label.className = 'list-label';
+    label.setAttribute('aria-hidden', 'true');
+    label.textContent = 'Other accounts';
+    accountsEl.append(label);
+  }
+  rest.forEach(({ account, position }) => accountsEl.append(accountCard(account, position, state, options)));
+  if (state.accounts.length === 1 && hero.length) {
+    const hint = document.createElement('li');
+    hint.className = 'acct-hint';
+    const copy = document.createElement('div');
+    copy.className = 'acct-hint-copy';
+    const title = document.createElement('strong');
+    title.textContent = 'Add a second account';
+    const text = document.createElement('p');
+    text.textContent = 'When this one hits its limit, switch to another login in one click — or let guarded handoff do it once Codex is closed.';
+    copy.append(title, text);
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'btn';
+    add.innerHTML = codexIcon('plus');
+    add.append(document.createTextNode('Add account'));
+    add.addEventListener('click', openAddDialog);
+    hint.append(copy, add);
+    accountsEl.append(hint);
+  }
   el('count').textContent = state.accounts.length ? `${state.accounts.length} saved` : '';
   el('empty').hidden = state.accounts.length > 0;
   accountsEl.hidden = state.accounts.length === 0;
@@ -481,7 +691,7 @@ function applyRateLimits(state) {
   currentRateLimits = state && typeof state === 'object'
     ? state
     : { refreshing: false, checkedAt: null, confirmedAt: null, confirmationPendingUntil: null, accounts: {} };
-  if (currentState) renderAccounts(currentState);
+  if (currentState) { renderAccounts(currentState); renderSuggest(currentState); }
   renderRateLimitStatus();
 }
 
@@ -566,6 +776,32 @@ function renderLive(state) {
   node.hidden = true;
 }
 
+const dismissedSuggestions = new Set();
+
+/** When the active account is running low and another has real headroom, say so. */
+function renderSuggest(state) {
+  const node = el('suggest-card');
+  node.hidden = true;
+  if (state.pendingLogin) return;
+  const active = state.accounts.find((account) => account.isActive);
+  const limit = active && limitingWindow(active);
+  if (!limit || limit.pct > LOW_PERCENT) return;
+  const best = rankAlternatives(state)[0];
+  if (!best || best.limit.pct <= LOW_PERCENT || best.limit.pct < limit.pct + 20) return;
+  const key = `${active.id}>${best.account.id}`;
+  if (dismissedSuggestions.has(key)) return;
+
+  node.hidden = false;
+  el('suggest-title').textContent = `${active.displayName} is running low`;
+  el('suggest-message').textContent = `Only ${percentText(limit.pct)} of its ${limit.label} limit is left. ${best.account.displayName} has ${percentText(best.limit.pct)} available.`;
+  const action = el('suggest-switch');
+  action.replaceChildren();
+  action.insertAdjacentHTML('beforeend', codexIcon('arrow'));
+  action.append(document.createTextNode(`Switch to ${best.account.displayName}`));
+  action.onclick = () => switchTo(best.account);
+  el('suggest-dismiss').onclick = () => { dismissedSuggestions.add(key); node.hidden = true; };
+}
+
 function renderShortcutRows(state) {
   const list = el('shortcut-rows');
   list.replaceChildren();
@@ -612,6 +848,7 @@ function applyState(state) {
   renderAccounts(state);
   renderPending(state);
   renderLive(state);
+  renderSuggest(state);
   renderShortcutRows(state);
   if (currentSettings) renderHandoffSettings(currentSettings);
   renderRateLimitStatus();
@@ -623,10 +860,81 @@ function applyState(state) {
 
 /* ---------- 5. actions -------------------------------------------------- */
 
-/* Switching is routine and reversible, so it runs without a confirmation
-   step. The destructive paths below all keep one. */
-function switchTo(account) {
-  run(`Switched to ${account.displayName}.`, () => api.switchAccount(account.id));
+/* Switching is routine and reversible, so it runs without a confirmation step
+   — except onto an account that is nearly out, where it is rarely what the
+   user wants. The result is a toast with Undo rather than a banner. */
+const toastsEl = el('toasts');
+let toastTimer = null;
+
+function hideToast() {
+  clearTimeout(toastTimer);
+  toastsEl.replaceChildren();
+}
+
+function showToast(message, { busy = false, actionLabel = null, onAction = null, timeout = 8000 } = {}) {
+  hideToast();
+  const node = document.createElement('div');
+  node.className = `toast${busy ? ' is-busy' : ''}`;
+  node.setAttribute('role', 'status');
+  const icon = document.createElement('span');
+  icon.className = 'toast-icon';
+  if (busy) icon.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+  else icon.innerHTML = codexIcon('check');
+  const text = document.createElement('span');
+  text.className = 'toast-text';
+  text.textContent = message;
+  node.append(icon, text);
+  if (actionLabel && onAction) {
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.className = 'toast-action';
+    action.textContent = actionLabel;
+    action.addEventListener('click', () => { hideToast(); onAction(); });
+    node.append(action);
+  }
+  toastsEl.append(node);
+  if (!busy) toastTimer = setTimeout(() => { if (node.isConnected) node.remove(); }, timeout);
+  return node;
+}
+
+async function switchTo(account, { weak = false, limit = null, undo = false } = {}) {
+  if (weak && limit) {
+    const ok = await askConfirm({
+      title: `Switch to ${account.displayName}?`,
+      message: `It only has ${percentText(limit.pct)} of its ${limit.label} limit left. You can switch back at any time.`,
+      confirmLabel: 'Switch anyway',
+    });
+    if (!ok) return;
+  }
+  const previous = currentState?.accounts.find((candidate) => candidate.isActive) || null;
+
+  // Show the work in progress on the card that was clicked, and in a toast.
+  const card = [...accountsEl.children].find((node) => node.dataset?.accountId === account.id);
+  if (card) {
+    card.classList.add('is-switching');
+    const button = card.querySelector('.btn-switch');
+    if (button) {
+      button.querySelector('.icon')?.replaceWith(Object.assign(document.createElement('span'), { className: 'spinner', ariaHidden: 'true' }));
+      const label = button.querySelector('.btn-label');
+      if (label) label.textContent = 'Switching…';
+    }
+  }
+  showToast(`Switching to ${account.displayName}… Codex will restart.`, { busy: true });
+
+  setBusy(true);
+  try {
+    const next = await api.switchAccount(account.id);
+    if (next && Array.isArray(next.accounts)) applyState(next);
+    const canUndo = !undo && previous && previous.id !== account.id;
+    showToast(undo ? `Restored ${account.displayName}.` : `Switched to ${account.displayName}.`,
+      canUndo ? { actionLabel: 'Undo', onAction: () => switchTo(previous, { undo: true }) } : {});
+  } catch (error) {
+    hideToast();
+    if (currentState) renderAccounts(currentState);
+    reportError(error);
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function reauth(account) {
@@ -792,7 +1100,8 @@ function renderTheme() {
   THEMES.forEach((theme) => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.textContent = theme.label;
+    button.innerHTML = codexIcon(theme.icon);
+    button.append(document.createTextNode(theme.label));
     button.setAttribute('aria-pressed', String(theme.id === active));
     button.addEventListener('click', () => { applyTheme(theme.id); renderTheme(); });
     seg.append(button);
@@ -948,6 +1257,8 @@ function renderUpdateStatus(status) {
   const section = el('updates-section');
   if (!section) return;
   section.hidden = !currentUpdate.enabled;
+  const navItem = el('settings-nav-updates');
+  if (navItem) navItem.hidden = !currentUpdate.enabled;
   if (!currentUpdate.enabled) return;
 
   const message = el('update-status');
@@ -1019,6 +1330,7 @@ el('open-settings').addEventListener('click', () => {
   loadUsage();
   loadUpdateStatus();
   openLayer(el('settings-sheet'), el('settings-back'));
+  syncSettingsSpy();
 });
 el('settings-back').addEventListener('click', () => closeLayer(el('settings-sheet')));
 
@@ -1110,6 +1422,37 @@ el('shortcut-save').addEventListener('click', () => {
     return next;
   });
 });
+
+/* --- settings navigation: jump links with a scroll-spy highlight --- */
+const settingsScroll = el('settings-scroll');
+const settingsNav = [...document.querySelectorAll('#settings-nav button')];
+
+function markSettingsSection(targetId) {
+  settingsNav.forEach((button) => button.setAttribute('aria-current', String(button.dataset.target === targetId)));
+}
+
+function syncSettingsSpy() {
+  const visible = settingsNav.filter((button) => !button.hidden).map((button) => el(button.dataset.target)).filter(Boolean);
+  if (!visible.length) return;
+  const edge = settingsScroll.getBoundingClientRect().top + 96;
+  const atEnd = settingsScroll.scrollTop + settingsScroll.clientHeight >= settingsScroll.scrollHeight - 4;
+  let current = atEnd ? visible[visible.length - 1] : visible[0];
+  if (!atEnd) visible.forEach((section) => { if (section.getBoundingClientRect().top <= edge) current = section; });
+  markSettingsSection(current.id);
+}
+
+let spyFrame = 0;
+settingsScroll.addEventListener('scroll', () => {
+  cancelAnimationFrame(spyFrame);
+  spyFrame = requestAnimationFrame(syncSettingsSpy);
+}, { passive: true });
+settingsNav.forEach((button) => button.addEventListener('click', () => {
+  const target = el(button.dataset.target);
+  if (!target) return;
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  target.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' });
+  markSettingsSection(button.dataset.target);
+}));
 
 /* --- boot --- */
 (async function boot() {

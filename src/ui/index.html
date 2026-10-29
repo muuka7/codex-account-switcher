@@ -12,13 +12,13 @@
     <div id="progress" class="progress" hidden></div>
 
     <header class="titlebar">
-      <div class="mark" aria-hidden="true">C</div>
+      <div class="mark" aria-hidden="true"><span data-icon="swap"></span></div>
       <div class="wordmark">
         <strong>Codex Account Switcher</strong>
         <span>Local and SSH server accounts</span>
       </div>
       <div class="titlebar-actions">
-        <button id="open-codex" class="btn btn-ghost" type="button">
+        <button id="open-codex" class="btn btn-ghost" type="button" title="Open Codex">
           <span class="btn-label">Open Codex</span><span data-icon="external"></span>
         </button>
         <button id="open-settings" class="btn btn-icon" type="button" aria-label="Settings" title="Settings">
@@ -32,34 +32,40 @@
         <div id="alerts" class="stack"></div>
 
         <div class="server-context">
-          <label for="account-location">Accounts on</label>
-          <select id="account-location" aria-label="Account location"><option value="">This computer</option></select>
-          <button id="manage-servers" class="btn btn-sm" type="button">Servers…</button>
+          <div class="location">
+            <span id="location-icon" data-icon="monitor"></span>
+            <select id="account-location" aria-label="Account location"><option value="">This computer</option></select>
+            <span data-icon="chevron"></span>
+          </div>
+          <button id="manage-servers" class="btn" type="button" aria-label="Manage SSH servers" title="Manage SSH servers"><span data-icon="server"></span><span class="btn-label">Servers…</span></button>
         </div>
 
         <section id="remote-view" class="stack" hidden aria-label="Server accounts">
-          <div class="section-head">
-            <h2 id="remote-title">Server</h2><span class="spacer"></span>
-            <button id="remote-reconnect" class="btn btn-sm" type="button">Refresh live usage</button>
+          <div class="remote-head">
+            <span class="remote-badge" aria-hidden="true"><span data-icon="server"></span></span>
+            <div>
+              <h2 id="remote-title">Server</h2>
+              <p id="remote-status" class="remote-copy" role="status" aria-live="polite"></p>
+            </div>
+            <button id="remote-reconnect" class="btn btn-sm" type="button"><span data-icon="rotate"></span>Refresh live usage</button>
           </div>
-          <p id="remote-status" class="remote-copy" role="status" aria-live="polite"></p>
           <div id="remote-error" class="notice notice-warn" hidden></div>
           <button id="remote-setup" class="btn" type="button" hidden>Set up server helper</button>
           <section id="remote-live" class="card remote-card" hidden aria-labelledby="remote-live-title">
-            <h3 id="remote-live-title">Connected Codex daemon</h3>
+            <h3 id="remote-live-title"><span class="live-dot" aria-hidden="true"></span>Connected Codex daemon</h3>
             <p id="remote-live-account" class="remote-copy"></p>
             <div id="remote-live-usage" class="remote-quotas"></div>
             <p id="remote-live-note" class="remote-copy"></p>
           </section>
           <div id="remote-maintenance" class="notice notice-warn" hidden></div>
           <div class="section-head"><h2>Saved on this server</h2><span class="spacer"></span>
-            <button id="remote-refresh-saved" class="btn btn-sm" type="button">Refresh saved usage</button>
+            <button id="remote-refresh-saved" class="btn btn-sm" type="button"><span data-icon="rotate"></span>Refresh saved usage</button>
           </div>
-          <div id="remote-accounts" class="stack"></div>
+          <div id="remote-accounts" class="acct-list"></div>
           <p id="remote-empty" class="remote-copy">Save the server’s current login or add an account through device login.</p>
           <div class="remote-actions">
             <button id="remote-import" class="btn" type="button">Save current login</button>
-            <button id="remote-login" class="btn btn-primary" type="button">Add account</button>
+            <button id="remote-login" class="btn btn-primary" type="button"><span data-icon="plus"></span>Add account</button>
             <button id="remote-recover" class="btn" type="button" hidden>Recover transaction</button>
             <button id="remote-terminal" class="btn" type="button" hidden>Terminal access…</button>
           </div>
@@ -109,13 +115,29 @@
           </div>
         </section>
 
+        <!-- Contextual: the active account is running low and another has headroom -->
+        <section id="suggest-card" class="notice notice-accent" role="status" aria-live="polite" hidden>
+          <span class="notice-icon" data-icon="arrow"></span>
+          <div class="notice-body">
+            <strong id="suggest-title">Your account is running low</strong>
+            <p id="suggest-message"></p>
+          </div>
+          <div class="notice-actions">
+            <button id="suggest-switch" class="btn btn-primary" type="button"></button>
+            <button id="suggest-dismiss" class="btn" type="button">Not now</button>
+          </div>
+        </section>
+
         <div class="section-head">
-          <h2 id="accounts-heading">Saved accounts</h2>
+          <h2 id="accounts-heading">Accounts</h2>
           <span id="count" class="count"></span>
           <span class="spacer"></span>
           <span id="rate-limit-status" class="count" role="status" aria-live="polite"></span>
           <button id="refresh-rate-limits" class="btn btn-sm" type="button" aria-label="Refresh account usage" title="Refresh account usage">
             <span data-icon="rotate"></span><span class="btn-label">Refresh usage</span>
+          </button>
+          <button id="add-account" class="btn btn-sm btn-primary" type="button">
+            <span data-icon="plus"></span><span class="btn-label">Add account</span>
           </button>
         </div>
 
@@ -125,12 +147,6 @@
           <span class="empty-mark" data-icon="users"></span>
           <strong>No accounts saved yet</strong>
           <p>Sign in to Codex normally, then save that login here as your first account.</p>
-        </div>
-
-        <div class="add-row">
-          <button id="add-account" class="btn" type="button">
-            <span data-icon="plus"></span>Add another account
-          </button>
         </div>
 
         <p class="footnote">
@@ -154,65 +170,82 @@
       </button>
       <h2 id="settings-heading">Settings</h2>
     </header>
-    <div class="scroll">
-      <div class="page stack">
+    <div class="scroll" id="settings-scroll">
+      <div class="settings-layout">
+        <nav id="settings-nav" class="settings-nav" aria-label="Settings sections">
+          <button type="button" data-target="set-appearance" aria-current="true"><span data-icon="contrast"></span>Appearance</button>
+          <button type="button" data-target="set-shortcuts"><span data-icon="keyboard"></span>Shortcuts</button>
+          <button type="button" data-target="set-window"><span data-icon="window"></span>Window &amp; startup</button>
+          <button type="button" id="settings-nav-updates" data-target="updates-section" hidden><span data-icon="download"></span>Updates</button>
+          <button type="button" data-target="set-handoff"><span data-icon="rotate"></span>Guarded handoff</button>
+          <button type="button" data-target="set-activity"><span data-icon="activity"></span>Local activity</button>
+          <button type="button" data-target="set-about"><span data-icon="help"></span>How it works</button>
+        </nav>
 
-        <div class="section-head"><h2>Appearance</h2></div>
-        <div class="card">
-          <div class="setting inline">
-            <div class="setting-copy">
-              <strong>Theme</strong>
-              <p>Follow the system setting, or pin one.</p>
-            </div>
-            <div class="setting-control">
-              <div id="theme-seg" class="seg" role="group" aria-label="Theme"></div>
+        <div class="settings-main">
+
+        <section id="set-appearance" class="set-section">
+          <div class="section-head"><h2>Appearance</h2></div>
+          <div class="card">
+            <div class="setting inline">
+              <div class="setting-copy">
+                <strong>Theme</strong>
+                <p>Follow the system setting, or pin one.</p>
+              </div>
+              <div class="setting-control">
+                <div id="theme-seg" class="seg" role="group" aria-label="Theme"></div>
+              </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="section-head"><h2>Keyboard shortcuts</h2><span class="count">work anywhere</span></div>
-        <div class="card">
-          <div id="shortcut-rows" class="shortcut-rows"></div>
-        </div>
+        <section id="set-shortcuts" class="set-section">
+          <div class="section-head"><h2>Keyboard shortcuts</h2><span class="count">work anywhere</span></div>
+          <div class="card">
+            <div id="shortcut-rows" class="shortcut-rows"></div>
+          </div>
+        </section>
 
-        <div class="section-head"><h2>Window &amp; startup</h2></div>
-        <div class="card">
-          <div class="setting column">
-            <div class="setting-copy">
-              <strong>Launch size</strong>
-              <p>The size this window opens at.</p>
+        <section id="set-window" class="set-section">
+          <div class="section-head"><h2>Window &amp; startup</h2></div>
+          <div class="card">
+            <div class="setting column">
+              <div class="setting-copy">
+                <strong>Launch size</strong>
+                <p>The size this window opens at.</p>
+              </div>
+              <div id="presets" class="presets" role="group" aria-label="Launch size"></div>
             </div>
-            <div id="presets" class="presets" role="group" aria-label="Launch size"></div>
+            <div class="setting inline">
+              <div class="setting-copy">
+                <strong>Open at login</strong>
+                <p>Start the switcher when you sign in to this computer.</p>
+              </div>
+              <div class="setting-control">
+                <label class="toggle">
+                  <input id="launch-on-login" type="checkbox" />
+                  <span class="track"></span>
+                  <span class="sr-only">Open at login</span>
+                </label>
+              </div>
+            </div>
+            <div class="setting inline">
+              <div class="setting-copy">
+                <strong>Remember exact last size</strong>
+                <p id="last-window-size">Resize the window to save it.</p>
+              </div>
+              <div class="setting-control">
+                <label class="toggle">
+                  <input id="remember-window-size" type="checkbox" />
+                  <span class="track"></span>
+                  <span class="sr-only">Remember exact last size</span>
+                </label>
+              </div>
+            </div>
           </div>
-          <div class="setting inline">
-            <div class="setting-copy">
-              <strong>Open at login</strong>
-              <p>Start the switcher when you sign in to this computer.</p>
-            </div>
-            <div class="setting-control">
-              <label class="toggle">
-                <input id="launch-on-login" type="checkbox" />
-                <span class="track"></span>
-                <span class="sr-only">Open at login</span>
-              </label>
-            </div>
-          </div>
-          <div class="setting inline">
-            <div class="setting-copy">
-              <strong>Remember exact last size</strong>
-              <p id="last-window-size">Resize the window to save it.</p>
-            </div>
-            <div class="setting-control">
-              <label class="toggle">
-                <input id="remember-window-size" type="checkbox" />
-                <span class="track"></span>
-                <span class="sr-only">Remember exact last size</span>
-              </label>
-            </div>
-          </div>
-        </div>
+        </section>
 
-        <div id="updates-section" hidden>
+        <section id="updates-section" class="set-section" hidden>
           <div class="section-head"><h2>Software updates</h2><span class="count">macOS</span></div>
           <div class="card">
             <div class="setting inline">
@@ -227,106 +260,113 @@
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="section-head"><h2>Guarded handoff</h2><span class="count">idle only</span></div>
-        <div class="card handoff-settings">
-          <div class="setting inline">
-            <div class="setting-copy">
-              <strong>Switch when the 5-hour limit is confirmed</strong>
-              <p>Keeps the switcher in the tray, queues a same-group destination, then waits until Codex is closed. It never terminates a running task.</p>
+        <section id="set-handoff" class="set-section">
+          <div class="section-head"><h2>Guarded handoff</h2><span class="count">idle only</span></div>
+          <div class="card handoff-settings">
+            <div class="setting inline">
+              <div class="setting-copy">
+                <strong>Switch when the 5-hour limit is confirmed</strong>
+                <p>Keeps the switcher in the tray, queues a same-group destination, then waits until Codex is closed. It never terminates a running task.</p>
+              </div>
+              <div class="setting-control">
+                <label class="toggle">
+                  <input id="handoff-enabled" type="checkbox" />
+                  <span class="track"></span>
+                  <span class="sr-only">Enable guarded handoff</span>
+                </label>
+              </div>
             </div>
-            <div class="setting-control">
-              <label class="toggle">
-                <input id="handoff-enabled" type="checkbox" />
-                <span class="track"></span>
-                <span class="sr-only">Enable guarded handoff</span>
+            <div class="handoff-contract" role="note">
+              <span class="contract-node">Confirm</span><span class="contract-line"></span>
+              <span class="contract-node">Wait for close</span><span class="contract-line"></span>
+              <span class="contract-node">Verify</span><span class="contract-line"></span>
+              <span class="contract-node">You continue</span>
+            </div>
+            <div class="setting column">
+              <div class="setting-copy">
+                <strong>Continuity groups</strong>
+                <p>Only enabled accounts with exactly matching group names can hand work to each other.</p>
+                <p id="handoff-readiness" class="handoff-readiness" role="status"></p>
+              </div>
+              <div id="handoff-account-rows" class="handoff-account-rows"></div>
+            </div>
+            <div class="setting handoff-thresholds">
+              <label class="compact-field" for="handoff-reserve">
+                <span>Destination reserve</span>
+                <span class="number-suffix"><input id="handoff-reserve" type="number" min="1" max="50" step="1" /><span>%</span></span>
+              </label>
+              <label class="compact-field" for="handoff-cooldown">
+                <span>Switch cooldown</span>
+                <select id="handoff-cooldown">
+                  <option value="15">15 minutes</option>
+                  <option value="30">30 minutes</option>
+                  <option value="60">1 hour</option>
+                  <option value="120">2 hours</option>
+                </select>
               </label>
             </div>
-          </div>
-          <div class="handoff-contract" role="note">
-            <span class="contract-node">Confirm</span><span class="contract-line"></span>
-            <span class="contract-node">Wait for close</span><span class="contract-line"></span>
-            <span class="contract-node">Verify</span><span class="contract-line"></span>
-            <span class="contract-node">You continue</span>
-          </div>
-          <div class="setting column">
-            <div class="setting-copy">
-              <strong>Continuity groups</strong>
-              <p>Only enabled accounts with exactly matching group names can hand work to each other.</p>
-              <p id="handoff-readiness" class="handoff-readiness" role="status"></p>
-            </div>
-            <div id="handoff-account-rows" class="handoff-account-rows"></div>
-          </div>
-          <div class="setting handoff-thresholds">
-            <label class="compact-field" for="handoff-reserve">
-              <span>Destination reserve</span>
-              <span class="number-suffix"><input id="handoff-reserve" type="number" min="1" max="50" step="1" /><span>%</span></span>
-            </label>
-            <label class="compact-field" for="handoff-cooldown">
-              <span>Switch cooldown</span>
-              <select id="handoff-cooldown">
-                <option value="15">15 minutes</option>
-                <option value="30">30 minutes</option>
-                <option value="60">1 hour</option>
-                <option value="120">2 hours</option>
-              </select>
-            </label>
-          </div>
-          <div class="setting">
-            <div class="setting-copy">
-              <strong>Supervised continuation</strong>
-              <p>Codex reopens on the verified destination. The switcher never submits a new turn or approves a pending action.</p>
+            <div class="setting">
+              <div class="setting-copy">
+                <strong>Supervised continuation</strong>
+                <p>Codex reopens on the verified destination. The switcher never submits a new turn or approves a pending action.</p>
+              </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="section-head"><h2>Local activity</h2></div>
-        <div class="card">
-          <div class="setting inline">
-            <div class="setting-copy">
-              <strong>Local activity tracking</strong>
-              <p id="usage-summary">Off · counts opens and switches locally</p>
-            </div>
-            <div class="setting-control usage-control">
-              <label class="toggle">
-                <input id="usage-tracking" type="checkbox" />
-                <span class="track"></span>
-                <span class="sr-only">Local activity tracking</span>
-              </label>
-              <button id="clear-usage" class="btn btn-sm btn-danger" type="button" hidden>Clear</button>
+        <section id="set-activity" class="set-section">
+          <div class="section-head"><h2>Local activity</h2></div>
+          <div class="card">
+            <div class="setting inline">
+              <div class="setting-copy">
+                <strong>Local activity tracking</strong>
+                <p id="usage-summary">Off · counts opens and switches locally</p>
+              </div>
+              <div class="setting-control usage-control">
+                <label class="toggle">
+                  <input id="usage-tracking" type="checkbox" />
+                  <span class="track"></span>
+                  <span class="sr-only">Local activity tracking</span>
+                </label>
+                <button id="clear-usage" class="btn btn-sm btn-danger" type="button" hidden>Clear</button>
+              </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="section-head"><h2>How switching works</h2></div>
-        <div class="card">
-          <div class="setting">
-            <div class="setting-copy">
-              <strong>Never use Codex's own Logout</strong>
-              <p>Logging out inside Codex can invalidate the saved snapshot. To add or refresh an account, always start from this app.</p>
+        <section id="set-about" class="set-section">
+          <div class="section-head"><h2>How switching works</h2></div>
+          <div class="card">
+            <div class="setting">
+              <div class="setting-copy">
+                <strong>Never use Codex's own Logout</strong>
+                <p>Logging out inside Codex can invalidate the saved snapshot. To add or refresh an account, always start from this app.</p>
+              </div>
+            </div>
+            <div class="setting">
+              <div class="setting-copy">
+                <strong>Switching restarts Codex</strong>
+                <p>The switcher saves the live credential, swaps in the encrypted snapshot, then reopens Codex.</p>
+              </div>
+            </div>
+            <div class="setting inline">
+              <div class="setting-copy">
+                <strong>Local data</strong>
+                <p>Encrypted snapshots and settings live in this folder.</p>
+              </div>
+              <div class="setting-control">
+                <button id="settings-open-store" class="btn" type="button">
+                  <span data-icon="database"></span>Open folder
+                </button>
+              </div>
             </div>
           </div>
-          <div class="setting">
-            <div class="setting-copy">
-              <strong>Switching restarts Codex</strong>
-              <p>The switcher saves the live credential, swaps in the encrypted snapshot, then reopens Codex.</p>
-            </div>
-          </div>
-          <div class="setting inline">
-            <div class="setting-copy">
-              <strong>Local data</strong>
-              <p>Encrypted snapshots and settings live in this folder.</p>
-            </div>
-            <div class="setting-control">
-              <button id="settings-open-store" class="btn" type="button">
-                <span data-icon="database"></span>Open folder
-              </button>
-            </div>
-          </div>
-        </div>
+          <p class="footnote"><span id="app-version">Version 0.2.1 — hardened build</span></p>
+        </section>
 
-        <p class="footnote"><span id="app-version">Version 0.2.1 — hardened build</span></p>
+        </div>
       </div>
     </div>
   </div>
@@ -477,6 +517,7 @@
     </section>
   </div>
   <div id="remote-device-dialog" class="dialog-layer" hidden>
+    <div class="backdrop"></div>
     <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="remote-device-title">
       <h2 id="remote-device-title">Sign in to the server account</h2>
       <p>Open the official OpenAI device sign-in page, enter this code, and choose the account you want to save.</p>
@@ -490,6 +531,8 @@
       <div class="dialog-actions"><button id="remote-device-cancel" class="btn" type="button">Cancel login</button><button id="remote-device-open" class="btn btn-primary" type="button">Open sign-in page</button></div>
     </section>
   </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
 
   <script src="icons.js"></script>
   <script src="app.js"></script>
